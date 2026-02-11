@@ -383,7 +383,7 @@ export default function PublicBookingScreen() {
               ]}
             >
               <Image
-                source={require('@/assets/images/logo.png')}
+                source={{ uri: 'https://r2-pub.rork.com/attachments/p1j5bbyxx5oah91xvheeb' }}
                 style={styles.logo}
                 resizeMode="contain"
               />
