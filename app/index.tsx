@@ -356,8 +356,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   logo: {
-    width: 260,
-    height: 116,
+    width: 390,
+    height: 174,
     marginBottom: 8,
   },
   content: {
