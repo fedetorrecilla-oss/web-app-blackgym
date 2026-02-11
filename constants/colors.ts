@@ -5,7 +5,7 @@ export default {
   primarySoft: 'rgba(198, 241, 53, 0.08)',
   accent: '#C6F135',
   accentLight: 'rgba(198, 241, 53, 0.12)',
-  background: '#0A0A0A',
+  background: '#000000',
   surface: '#151515',
   surfaceAlt: '#1E1E1E',
   surfaceElevated: '#252525',
