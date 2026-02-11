@@ -380,8 +380,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   logo: {
-    width: 660,
-    height: 300,
+    width: 990,
+    height: 450,
     marginBottom: 8,
   },
   subtitle: {
