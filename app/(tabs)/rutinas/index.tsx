@@ -100,7 +100,7 @@ export default function RutinasScreen() {
       <View style={styles.headerActions}>
         <TouchableOpacity
           style={styles.headerBtn}
-          onPress={() => router.push('/(tabs)/rutinas/catalog')}
+          onPress={() => router.push('/rutinas/catalog' as any)}
           activeOpacity={0.7}
         >
           <BookOpen size={16} color={Colors.primary} />
@@ -108,7 +108,7 @@ export default function RutinasScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.headerBtn}
-          onPress={() => router.push('/(tabs)/rutinas/assign')}
+          onPress={() => router.push('/rutinas/assign' as any)}
           activeOpacity={0.7}
         >
           <UserPlus size={16} color={Colors.primary} />
@@ -145,7 +145,7 @@ export default function RutinasScreen() {
                 <TouchableOpacity
                   key={template.id}
                   style={styles.card}
-                  onPress={() => router.push({ pathname: '/(tabs)/rutinas/template', params: { templateId: template.id } })}
+                  onPress={() => router.push({ pathname: '/rutinas/template' as any, params: { templateId: template.id } })}
                   activeOpacity={0.7}
                 >
                   <View style={styles.cardLeft}>
@@ -183,7 +183,7 @@ export default function RutinasScreen() {
                 <TouchableOpacity
                   key={day.id}
                   style={styles.card}
-                  onPress={() => router.push({ pathname: '/(tabs)/rutinas/day', params: { dayId: day.id, dayName: day.name, dayLetter: day.dayLetter } })}
+                  onPress={() => router.push({ pathname: '/rutinas/day' as any, params: { dayId: day.id, dayName: day.name, dayLetter: day.dayLetter } })}
                   activeOpacity={0.7}
                 >
                   <View style={styles.cardLeft}>
