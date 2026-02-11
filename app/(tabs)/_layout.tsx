@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { CalendarDays, ClipboardList, Users, Wallet, Settings } from 'lucide-react-native';
+import { CalendarDays, ClipboardList, Users, Wallet, Settings, Dumbbell } from 'lucide-react-native';
 import React from 'react';
 import Colors from '@/constants/colors';
 import { useGym } from '@/context/GymContext';
@@ -60,6 +60,16 @@ export default function TabLayout() {
           title: 'Pagos',
           tabBarIcon: ({ color, size }) => (
             <Wallet size={size} color={color} />
+          ),
+          href: isAdmin ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="rutinas"
+        options={{
+          title: 'Rutinas',
+          tabBarIcon: ({ color, size }) => (
+            <Dumbbell size={size} color={color} />
           ),
           href: isAdmin ? undefined : null,
         }}
