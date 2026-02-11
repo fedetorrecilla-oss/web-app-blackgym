@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,86 @@ import { Dumbbell, ChevronRight, Trophy, Zap } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useGym } from '@/context/GymContext';
 import { useRutina } from '@/context/RutinaContext';
+
+function ExerciseRow({
+  de,
+  index,
+  getExerciseById,
+  getExerciseProgress,
+  selectedDay,
+  router,
+}: {
+  de: { id: string; exerciseId: string; sets: number; reps: string };
+  index: number;
+  getExerciseById: (id: string) => { name: string; muscleGroup: string } | null;
+  getExerciseProgress: (exerciseId: string, totalSets: number) => { completed: number; total: number; ratio: number };
+  selectedDay: { id: string } | null;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const ex = getExerciseById(de.exerciseId);
+  const prog = getExerciseProgress(de.exerciseId, de.sets);
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: 1,
+      duration: 400,
+      delay: index * 60,
+      useNativeDriver: true,
+    }).start();
+  }, [animValue, index]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: animValue,
+        transform: [{ translateY: animValue.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+      }}
+    >
+      <TouchableOpacity
+        style={styles.exerciseCard}
+        onPress={() => {
+          if (selectedDay) {
+            router.push({
+              pathname: '/(tabs)/mi-rutina/exercise' as any,
+              params: {
+                dayId: selectedDay.id,
+                exerciseId: de.exerciseId,
+                dayExerciseId: de.id,
+                sets: String(de.sets),
+                reps: de.reps,
+              },
+            });
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.exerciseLeft}>
+          <View style={[styles.exerciseIndex, prog.ratio >= 1 && styles.exerciseIndexDone]}>
+            {prog.ratio >= 1 ? (
+              <Zap size={16} color={Colors.black} />
+            ) : (
+              <Text style={styles.exerciseIndexText}>{index + 1}</Text>
+            )}
+          </View>
+          <View style={styles.exerciseInfo}>
+            <Text style={styles.exerciseName}>{ex?.name ?? 'Ejercicio'}</Text>
+            <Text style={styles.exerciseMeta}>
+              {ex?.muscleGroup ?? ''} · {de.sets}×{de.reps}
+            </Text>
+            <View style={styles.miniProgressBg}>
+              <View style={[styles.miniProgressFill, { width: `${prog.ratio * 100}%` as any }]} />
+            </View>
+          </View>
+        </View>
+        <View style={styles.exerciseRight}>
+          <Text style={styles.exerciseProgressLabel}>{prog.completed}/{prog.total}</Text>
+          <ChevronRight size={18} color={Colors.textMuted} />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 export default function MiRutinaScreen() {
   const router = useRouter();
@@ -170,72 +250,17 @@ export default function MiRutinaScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
       >
-        {exercises.map((de, index) => {
-          const ex = getExerciseById(de.exerciseId);
-          const prog = getExerciseProgress(de.exerciseId, de.sets);
-          const animValue = useRef(new Animated.Value(0)).current;
-
-          useEffect(() => {
-            Animated.timing(animValue, {
-              toValue: 1,
-              duration: 400,
-              delay: index * 60,
-              useNativeDriver: true,
-            }).start();
-          }, [animValue]);
-
-          return (
-            <Animated.View
-              key={de.id}
-              style={{
-                opacity: animValue,
-                transform: [{ translateY: animValue.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
-              }}
-            >
-              <TouchableOpacity
-                style={styles.exerciseCard}
-                onPress={() => {
-                  if (selectedDay) {
-                    router.push({
-                      pathname: '/(tabs)/mi-rutina/exercise' as any,
-                      params: {
-                        dayId: selectedDay.id,
-                        exerciseId: de.exerciseId,
-                        dayExerciseId: de.id,
-                        sets: String(de.sets),
-                        reps: de.reps,
-                      },
-                    });
-                  }
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.exerciseLeft}>
-                  <View style={[styles.exerciseIndex, prog.ratio >= 1 && styles.exerciseIndexDone]}>
-                    {prog.ratio >= 1 ? (
-                      <Zap size={16} color={Colors.black} />
-                    ) : (
-                      <Text style={styles.exerciseIndexText}>{index + 1}</Text>
-                    )}
-                  </View>
-                  <View style={styles.exerciseInfo}>
-                    <Text style={styles.exerciseName}>{ex?.name ?? 'Ejercicio'}</Text>
-                    <Text style={styles.exerciseMeta}>
-                      {ex?.muscleGroup ?? ''} · {de.sets}×{de.reps}
-                    </Text>
-                    <View style={styles.miniProgressBg}>
-                      <View style={[styles.miniProgressFill, { width: `${prog.ratio * 100}%` as any }]} />
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.exerciseRight}>
-                  <Text style={styles.exerciseProgressLabel}>{prog.completed}/{prog.total}</Text>
-                  <ChevronRight size={18} color={Colors.textMuted} />
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
-          );
-        })}
+        {exercises.map((de, index) => (
+          <ExerciseRow
+            key={de.id}
+            de={de}
+            index={index}
+            getExerciseById={getExerciseById}
+            getExerciseProgress={getExerciseProgress}
+            selectedDay={selectedDay}
+            router={router}
+          />
+        ))}
       </ScrollView>
     </Animated.View>
   );

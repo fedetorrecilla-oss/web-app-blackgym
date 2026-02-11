@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,71 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Stack } from 'expo-router';
-import { Check, Weight } from 'lucide-react-native';
+import { Check, Dumbbell } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useGym } from '@/context/GymContext';
 import { useRutina } from '@/context/RutinaContext';
+
+function SetRow({
+  setNumber,
+  getSetData,
+  localWeights,
+  handleWeightChange,
+  handleWeightBlur,
+  handleToggleSet,
+}: {
+  setNumber: number;
+  getSetData: (setNumber: number) => { weight: number; completed: boolean };
+  localWeights: Record<number, string>;
+  handleWeightChange: (setNumber: number, value: string) => void;
+  handleWeightBlur: (setNumber: number) => void;
+  handleToggleSet: (setNumber: number) => void;
+}) {
+  const data = getSetData(setNumber);
+  const displayWeight = localWeights[setNumber] !== undefined
+    ? localWeights[setNumber]
+    : data.weight > 0 ? String(data.weight) : '';
+
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true, speed: 50 }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }),
+    ]).start();
+    handleToggleSet(setNumber);
+  };
+
+  return (
+    <Animated.View style={[styles.setRow, { transform: [{ scale: scaleAnim }] }]}>
+      <View style={styles.setNumberBadge}>
+        <Text style={styles.setNumberText}>{setNumber}</Text>
+      </View>
+
+      <View style={styles.weightInputWrap}>
+        <Dumbbell size={14} color={Colors.textMuted} />
+        <TextInput
+          style={styles.weightInput}
+          value={displayWeight}
+          onChangeText={(v) => handleWeightChange(setNumber, v)}
+          onBlur={() => handleWeightBlur(setNumber)}
+          keyboardType="decimal-pad"
+          placeholder="0"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <Text style={styles.kgLabel}>kg</Text>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.checkBtn, data.completed && styles.checkBtnDone]}
+        onPress={handlePress}
+        activeOpacity={0.7}
+      >
+        <Check size={20} color={data.completed ? Colors.black : Colors.textMuted} />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 export default function ExerciseScreen() {
   const { dayId, exerciseId, dayExerciseId, sets: setsStr, reps } = useLocalSearchParams<{
@@ -150,55 +211,17 @@ export default function ExerciseScreen() {
 
         <Text style={styles.sectionTitle}>Series</Text>
 
-        {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNumber) => {
-          const data = getSetData(setNumber);
-          const displayWeight = localWeights[setNumber] !== undefined
-            ? localWeights[setNumber]
-            : data.weight > 0 ? String(data.weight) : '';
-
-          const scaleAnim = useRef(new Animated.Value(1)).current;
-
-          const handlePress = () => {
-            Animated.sequence([
-              Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true, speed: 50 }),
-              Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 50 }),
-            ]).start();
-            handleToggleSet(setNumber);
-          };
-
-          return (
-            <Animated.View
-              key={setNumber}
-              style={[styles.setRow, { transform: [{ scale: scaleAnim }] }]}
-            >
-              <View style={styles.setNumberBadge}>
-                <Text style={styles.setNumberText}>{setNumber}</Text>
-              </View>
-
-              <View style={styles.weightInputWrap}>
-                <Weight size={14} color={Colors.textMuted} />
-                <TextInput
-                  style={styles.weightInput}
-                  value={displayWeight}
-                  onChangeText={(v) => handleWeightChange(setNumber, v)}
-                  onBlur={() => handleWeightBlur(setNumber)}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={Colors.textMuted}
-                />
-                <Text style={styles.kgLabel}>kg</Text>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.checkBtn, data.completed && styles.checkBtnDone]}
-                onPress={handlePress}
-                activeOpacity={0.7}
-              >
-                <Check size={20} color={data.completed ? Colors.black : Colors.textMuted} />
-              </TouchableOpacity>
-            </Animated.View>
-          );
-        })}
+        {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNumber) => (
+          <SetRow
+            key={setNumber}
+            setNumber={setNumber}
+            getSetData={getSetData}
+            localWeights={localWeights}
+            handleWeightChange={handleWeightChange}
+            handleWeightBlur={handleWeightBlur}
+            handleToggleSet={handleToggleSet}
+          />
+        ))}
       </ScrollView>
     </Animated.View>
   );
