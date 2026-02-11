@@ -25,7 +25,6 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import * as XLSX from 'xlsx';
 import Colors from '@/constants/colors';
 import { getCurrentMonthKey, getMonthLabel, formatPrice, getPriceForDays, formatPhoneForWhatsApp } from '@/constants/gym';
 import { useGym } from '@/context/GymContext';
@@ -80,9 +79,11 @@ export default function PaymentsScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
+          'text/csv',
+          'text/plain',
+          'text/tab-separated-values',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'application/vnd.ms-excel',
-          'text/csv',
         ],
         copyToCacheDirectory: true,
       });
@@ -96,31 +97,21 @@ export default function PaymentsScreen() {
       console.log('[Payments] File picked:', file.name, file.uri, file.mimeType);
       setIsImporting(true);
 
-      let rows: { firstName: string; lastName: string; phone: string }[] = [];
+      let textContent = '';
 
       if (Platform.OS === 'web') {
         const response = await fetch(file.uri);
-        const arrayBuffer = await response.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-        rows = parseSheetRows(jsonData);
+        textContent = await response.text();
       } else {
-        const fileContent = await FileSystem.readAsStringAsync(file.uri, {
-          encoding: 'base64',
-        });
-        const workbook = XLSX.read(fileContent, { type: 'base64' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-        rows = parseSheetRows(jsonData);
+        textContent = await FileSystem.readAsStringAsync(file.uri);
       }
+
+      const rows = parseCsvRows(textContent);
 
       if (rows.length === 0) {
         Alert.alert(
           'Archivo vacío',
-          'No se encontraron clientes en el archivo. Asegurate de que tenga columnas: Nombre, Apellido, Teléfono (o variaciones como "nombre", "apellido", "telefono").'
+          'No se encontraron clientes en el archivo. Usá un CSV con columnas: Nombre, Apellido, Teléfono (separados por coma o punto y coma).'
         );
         setIsImporting(false);
         return;
@@ -136,7 +127,7 @@ export default function PaymentsScreen() {
       );
     } catch (e: any) {
       console.log('[Payments] Excel import error:', e);
-      Alert.alert('Error', 'No se pudo leer el archivo. Verificá que sea un Excel (.xlsx, .xls) o CSV válido.');
+      Alert.alert('Error', 'No se pudo leer el archivo. Verificá que sea un CSV válido.');
     } finally {
       setIsImporting(false);
     }
@@ -462,28 +453,66 @@ export default function PaymentsScreen() {
   );
 }
 
-function parseSheetRows(jsonData: Record<string, unknown>[]): { firstName: string; lastName: string; phone: string }[] {
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if ((char === ',' || char === ';' || char === '\t') && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function parseCsvRows(text: string): { firstName: string; lastName: string; phone: string }[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return [];
+
+  const firstLine = lines[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const hasHeader = firstLine.includes('nombre') || firstLine.includes('name') || firstLine.includes('apellido');
+
+  const dataLines = hasHeader ? lines.slice(1) : lines;
   const rows: { firstName: string; lastName: string; phone: string }[] = [];
 
-  const findColumn = (row: Record<string, unknown>, candidates: string[]): string => {
-    for (const key of Object.keys(row)) {
-      const normalized = key.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      for (const candidate of candidates) {
-        if (normalized === candidate || normalized.includes(candidate)) {
-          return String(row[key] ?? '').trim();
-        }
+  if (hasHeader) {
+    const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
+
+    const findIndex = (candidates: string[]): number => {
+      return headers.findIndex(h => candidates.some(c => h === c || h.includes(c)));
+    };
+
+    const firstNameIdx = findIndex(['nombre', 'first_name', 'firstname', 'first name', 'name']);
+    const lastNameIdx = findIndex(['apellido', 'last_name', 'lastname', 'last name', 'surname']);
+    const phoneIdx = findIndex(['telefono', 'phone', 'tel', 'celular', 'mobile', 'whatsapp']);
+
+    for (const line of dataLines) {
+      const parts = parseCsvLine(line);
+      const firstName = firstNameIdx >= 0 ? (parts[firstNameIdx] ?? '').trim() : '';
+      const lastName = lastNameIdx >= 0 ? (parts[lastNameIdx] ?? '').trim() : '';
+      const phone = phoneIdx >= 0 ? (parts[phoneIdx] ?? '').trim() : '';
+      if (firstName || lastName) {
+        rows.push({ firstName, lastName, phone });
       }
     }
-    return '';
-  };
-
-  for (const row of jsonData) {
-    const firstName = findColumn(row, ['nombre', 'first_name', 'firstname', 'first name', 'name']);
-    const lastName = findColumn(row, ['apellido', 'last_name', 'lastname', 'last name', 'surname']);
-    const phone = findColumn(row, ['telefono', 'phone', 'tel', 'celular', 'mobile', 'whatsapp']);
-
-    if (firstName || lastName) {
-      rows.push({ firstName, lastName, phone });
+  } else {
+    for (const line of dataLines) {
+      const parts = parseCsvLine(line);
+      if (parts.length >= 2) {
+        const firstName = (parts[0] ?? '').trim();
+        const lastName = (parts[1] ?? '').trim();
+        const phone = (parts[2] ?? '').trim();
+        if (firstName || lastName) {
+          rows.push({ firstName, lastName, phone });
+        }
+      }
     }
   }
 
