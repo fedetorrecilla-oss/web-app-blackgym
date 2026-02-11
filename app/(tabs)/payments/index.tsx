@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -15,6 +16,8 @@ import {
   CheckCircle2,
   Circle,
   MessageCircle,
+  Search,
+  X,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -24,6 +27,7 @@ import { useGym } from '@/context/GymContext';
 export default function PaymentsScreen() {
   const { students, isPaymentDone, togglePayment, getPaymentRecord, getStudentUniqueDays, pricing, getUnpaidStudents } = useGym();
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey());
+  const [searchQuery, setSearchQuery] = useState('');
 
   const navigateMonth = useCallback(
     (direction: -1 | 1) => {
@@ -141,7 +145,15 @@ export default function PaymentsScreen() {
   );
 
   const sortedStudents = useMemo(() => {
-    return [...students].sort((a, b) => {
+    let filtered = [...students];
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter((s) => {
+        const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
+        return fullName.includes(q);
+      });
+    }
+    return filtered.sort((a, b) => {
       const aPaid = isPaymentDone(a.id, monthKey);
       const bPaid = isPaymentDone(b.id, monthKey);
       if (aPaid !== bPaid) return aPaid ? 1 : -1;
@@ -149,7 +161,7 @@ export default function PaymentsScreen() {
         `${b.lastName} ${b.firstName}`
       );
     });
-  }, [students, monthKey, isPaymentDone]);
+  }, [students, monthKey, isPaymentDone, searchQuery]);
 
   return (
     <View style={styles.container}>
@@ -216,6 +228,29 @@ export default function PaymentsScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {students.length > 0 && (
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputWrap}>
+            <Search size={18} color={Colors.textMuted} />
+            <TextInput
+              testID="input-search-payment"
+              style={styles.searchInput}
+              placeholder="Buscar alumno..."
+              placeholderTextColor={Colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={8}>
+                <X size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {students.length === 0 ? (
         <View style={styles.emptyState}>
@@ -424,6 +459,28 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     color: Colors.textMuted,
+  },
+  searchContainer: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  searchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: Colors.text,
+    padding: 0,
   },
   scrollView: {
     flex: 1,
