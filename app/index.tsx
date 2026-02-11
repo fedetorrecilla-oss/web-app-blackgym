@@ -13,7 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { User, Shield, ArrowRight, Phone, Calendar } from 'lucide-react-native';
+import { User, Shield, ArrowRight, Phone } from 'lucide-react-native';
 import { useGym } from '@/context/GymContext';
 import Colors from '@/constants/colors';
 import { ADMIN_PASSWORD } from '@/constants/gym';
@@ -133,34 +133,10 @@ export default function LoginScreen() {
             ]}
           >
             <Image
-              source={{ uri: 'https://r2-pub.rork.com/attachments/p1j5bbyxx5oah91xvheeb' }}
+              source={require('@/assets/images/logo.png')}
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.subtitle}>Reservá tu turno en segundos</Text>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.bookingBanner,
-              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            <TouchableOpacity
-              testID="btn-book-direct"
-              style={styles.bookingBannerButton}
-              onPress={() => router.push('/book')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.bookingBannerIcon}>
-                <Calendar size={20} color={Colors.black} />
-              </View>
-              <View style={styles.bookingBannerTextWrap}>
-                <Text style={styles.bookingBannerTitle}>¿Querés reservar un turno?</Text>
-                <Text style={styles.bookingBannerDesc}>Anotate sin necesidad de crear cuenta</Text>
-              </View>
-              <ArrowRight size={18} color={Colors.primary} />
-            </TouchableOpacity>
           </Animated.View>
 
           <Animated.View
@@ -207,7 +183,7 @@ export default function LoginScreen() {
                 >
                   Soy Alumno
                 </Text>
-                <Text style={styles.roleDesc}>Reservar turnos</Text>
+                <Text style={styles.roleDesc}>Entrenar y ver rutina</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -380,49 +356,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   logo: {
-    width: 990,
-    height: 450,
+    width: 260,
+    height: 116,
     marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 6,
-  },
-  bookingBanner: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  bookingBannerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    gap: 12,
-  },
-  bookingBannerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bookingBannerTextWrap: {
-    flex: 1,
-  },
-  bookingBannerTitle: {
-    fontSize: 15,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  bookingBannerDesc: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
   },
   content: {
     paddingHorizontal: 20,
