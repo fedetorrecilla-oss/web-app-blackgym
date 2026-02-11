@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GymProvider } from '@/context/GymContext';
+import { RutinaProvider } from '@/context/RutinaContext';
 import { trpc, trpcClient } from '@/lib/trpc';
 
 SplashScreen.preventAutoHideAsync();
@@ -31,7 +32,9 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <GymProvider>
-            <RootLayoutNav />
+            <RutinaProvider>
+              <RootLayoutNav />
+            </RutinaProvider>
           </GymProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>
