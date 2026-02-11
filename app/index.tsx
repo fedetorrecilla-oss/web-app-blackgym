@@ -377,15 +377,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 80,
     paddingBottom: 32,
-    backgroundColor: Colors.surface,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    backgroundColor: Colors.background,
   },
   logo: {
-    width: 220,
-    height: 100,
+    width: 660,
+    height: 300,
     marginBottom: 8,
   },
   subtitle: {
