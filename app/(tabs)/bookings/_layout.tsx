@@ -10,7 +10,7 @@ export default function BookingsLayout() {
         headerTitleStyle: { fontWeight: '700' as const, color: Colors.text },
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Mis Turnos' }} />
+      <Stack.Screen name="index" options={{ title: 'Black Gym' }} />
     </Stack>
   );
 }
