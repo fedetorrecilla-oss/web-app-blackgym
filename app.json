@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Black Gym",
-    "slug": "black-gym",
+    "slug": "black-gym-fede",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -39,6 +39,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://rork.com/"
+      },
+      "eas": {
+        "projectId": "23927c86-8818-42bd-8ff3-b12e106be2af"
+      }
+    },
+    "owner": "fede.torrecilla"
   }
 }
