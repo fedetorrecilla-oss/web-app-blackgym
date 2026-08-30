@@ -10,6 +10,8 @@ import {
   Modal,
   Animated,
   Linking,
+  Image,
+  Dimensions,
 } from 'react-native';
 import {
   Plus,
@@ -20,9 +22,13 @@ import {
   Dumbbell,
   PlayCircle,
   StickyNote,
+  ChevronLeft,
+  ChevronRight,
+  Images,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useRutina } from '@/context/RutinaContext';
+import { getExerciseImages } from '@/lib/exercise-images';
 import {
   MUSCLE_GROUPS,
   EQUIPMENT_TYPES,
@@ -65,6 +71,11 @@ export default function CatalogScreen() {
   const [formDifficulty, setFormDifficulty] = useState<Difficulty>('principiante');
 
   const [detailExercise, setDetailExercise] = useState<RutinaExercise | null>(null);
+
+  const detailImages = useMemo(
+    () => (detailExercise ? getExerciseImages(detailExercise.name) : []),
+    [detailExercise],
+  );
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -283,6 +294,9 @@ export default function CatalogScreen() {
           </View>
           {detailExercise && (
             <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent} keyboardShouldPersistTaps="handled">
+              {detailImages.length > 0 && (
+                <ExerciseImageCarousel key={detailExercise.id} images={detailImages} />
+              )}
               <View style={styles.badgeRow}>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{MUSCLE_ICONS[detailExercise.muscleGroup] ?? '🏋️'} {detailExercise.muscleGroup}</Text>
@@ -433,6 +447,68 @@ function FilterChip({ label, active, onPress }: { label: string; active: boolean
   );
 }
 
+/** Step-through reference image sequence (free-exercise-db, public domain). */
+function ExerciseImageCarousel({ images }: { images: string[] }) {
+  const [index, setIndex] = useState(0);
+  const width = Dimensions.get('window').width - 40;
+
+  const onScroll = useCallback((e: { nativeEvent: { contentOffset: { x: number } } }) => {
+    const next = Math.round(e.nativeEvent.contentOffset.x / width);
+    setIndex(Math.min(Math.max(next, 0), images.length - 1));
+  }, [width, images.length]);
+
+  const go = useCallback((dir: 1 | -1) => {
+    setIndex(i => Math.min(Math.max(i + dir, 0), images.length - 1));
+  }, [images.length]);
+
+  return (
+    <View style={styles.carousel}>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onScroll}
+        style={{ width }}
+      >
+        {images.map((uri, i) => (
+          <Image key={uri} source={{ uri }} style={[styles.carouselImage, { width }]} resizeMode="contain" />
+        ))}
+      </ScrollView>
+      <View style={styles.carouselFooter}>
+        <TouchableOpacity
+          onPress={() => go(-1)}
+          disabled={index === 0}
+          style={[styles.carouselArrow, index === 0 && styles.carouselArrowDisabled]}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <ChevronLeft size={18} color={index === 0 ? Colors.textMuted : Colors.primary} />
+        </TouchableOpacity>
+        <View style={styles.carouselDots}>
+          {images.length > 1 ? images.map((uri, i) => (
+            <View key={uri} style={[styles.carouselDot, i === index && styles.carouselDotActive]} />
+          )) : (
+            <View style={styles.carouselDotsRow}>
+              <Images size={13} color={Colors.textMuted} />
+              <Text style={styles.carouselStep}>Paso {index + 1} de {images.length}</Text>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity
+          onPress={() => go(1)}
+          disabled={index === images.length - 1}
+          style={[styles.carouselArrow, index === images.length - 1 && styles.carouselArrowDisabled]}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <ChevronRight size={18} color={index === images.length - 1 ? Colors.textMuted : Colors.primary} />
+        </TouchableOpacity>
+      </View>
+      {images.length > 1 && (
+        <Text style={styles.carouselStepCentered}>Paso {index + 1} de {images.length}</Text>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   searchBar: {
@@ -498,6 +574,28 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '700' as const, color: Colors.text, flex: 1, marginRight: 12 },
   modalBody: { flex: 1 },
   modalBodyContent: { padding: 20, paddingBottom: 40 },
+  carousel: {
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.border,
+    paddingTop: 10, paddingBottom: 12,
+    alignItems: 'center',
+  },
+  carouselImage: {
+    height: 280,
+    backgroundColor: '#FFFFFF',
+  },
+  carouselFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', paddingHorizontal: 12, marginTop: 8,
+  },
+  carouselArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  carouselArrowDisabled: { opacity: 0.35 },
+  carouselDots: { flex: 1, alignItems: 'center' },
+  carouselDotsRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  carouselDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.border, marginHorizontal: 3 },
+  carouselDotActive: { backgroundColor: Colors.primary },
+  carouselStep: { fontSize: 12, color: Colors.textMuted, fontWeight: '600' as const },
+  carouselStepCentered: { fontSize: 11, color: Colors.textMuted, marginTop: 6, fontWeight: '600' as const },
   notesCard: {
     backgroundColor: Colors.surface, borderRadius: 12, padding: 14,
     borderWidth: 1, borderColor: Colors.border, marginTop: 16,
