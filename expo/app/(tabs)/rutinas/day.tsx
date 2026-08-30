@@ -15,6 +15,13 @@ import { Stack } from 'expo-router';
 import { Plus, Trash2, Save, Search, X, Dumbbell, Check } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useRutina } from '@/context/RutinaContext';
+import { MUSCLE_GROUPS, Difficulty } from '@/types/rutina';
+
+const DIFFICULTY_COLORS: Record<Difficulty, string> = {
+  principiante: Colors.success,
+  intermedio: Colors.warning,
+  avanzado: Colors.error,
+};
 
 export default function DayScreen() {
   const { dayId, dayName, dayLetter } = useLocalSearchParams<{ dayId: string; dayName: string; dayLetter: string }>();
@@ -31,6 +38,7 @@ export default function DayScreen() {
 
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerMuscle, setPickerMuscle] = useState<string | null>(null);
   const [pickerExerciseId, setPickerExerciseId] = useState<string | null>(null);
   const [pickerSets, setPickerSets] = useState('3');
   const [pickerReps, setPickerReps] = useState('10');
@@ -44,12 +52,17 @@ export default function DayScreen() {
   }, [fadeAnim]);
 
   const filteredExercises = useMemo(() => {
-    if (!pickerSearch.trim()) return exercises;
-    const q = pickerSearch.toLowerCase();
-    return exercises.filter(
-      e => e.name.toLowerCase().includes(q) || e.muscleGroup.toLowerCase().includes(q)
-    );
-  }, [exercises, pickerSearch]);
+    const q = pickerSearch.trim().toLowerCase();
+    return exercises.filter(e => {
+      if (pickerMuscle && e.muscleGroup !== pickerMuscle) return false;
+      if (!q) return true;
+      return (
+        e.name.toLowerCase().includes(q) ||
+        e.muscleGroup.toLowerCase().includes(q) ||
+        (e.equipment ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [exercises, pickerSearch, pickerMuscle]);
 
   const dayExerciseIds = useMemo(() => new Set(dayExercises.map(de => de.exerciseId)), [dayExercises]);
 
@@ -77,6 +90,13 @@ export default function DayScreen() {
     await updateDayExercise(editingId, sets, reps);
     setEditingId(null);
   }, [editingId, editSets, editReps, updateDayExercise]);
+
+  const closePicker = useCallback(() => {
+    setShowPicker(false);
+    setPickerExerciseId(null);
+    setPickerSearch('');
+    setPickerMuscle(null);
+  }, []);
 
   const handleDelete = useCallback((id: string, name: string) => {
     Alert.alert('Eliminar ejercicio', `¿Quitar "${name}" de este día?`, [
@@ -144,11 +164,11 @@ export default function DayScreen() {
         <Plus size={24} color={Colors.black} />
       </TouchableOpacity>
 
-      <Modal visible={showPicker} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowPicker(false); setPickerExerciseId(null); }}>
+      <Modal visible={showPicker} animationType="slide" presentationStyle="pageSheet" onRequestClose={closePicker}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Agregar Ejercicio</Text>
-            <TouchableOpacity onPress={() => { setShowPicker(false); setPickerExerciseId(null); }}>
+            <TouchableOpacity onPress={closePicker}>
               <X size={22} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -177,9 +197,27 @@ export default function DayScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickerChips}>
+                <TouchableOpacity
+                  style={[styles.pickerChip, pickerMuscle === null && styles.pickerChipActive]}
+                  onPress={() => setPickerMuscle(null)}
+                >
+                  <Text style={[styles.pickerChipText, pickerMuscle === null && styles.pickerChipTextActive]}>Todos</Text>
+                </TouchableOpacity>
+                {MUSCLE_GROUPS.map(g => (
+                  <TouchableOpacity
+                    key={g}
+                    style={[styles.pickerChip, pickerMuscle === g && styles.pickerChipActive]}
+                    onPress={() => setPickerMuscle(pickerMuscle === g ? null : g)}
+                  >
+                    <Text style={[styles.pickerChipText, pickerMuscle === g && styles.pickerChipTextActive]}>{g}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
               <ScrollView style={styles.pickerList} contentContainerStyle={styles.pickerListContent}>
                 {filteredExercises.map(ex => {
                   const alreadyAdded = dayExerciseIds.has(ex.id);
+                  const difficulty = (ex.difficulty ?? 'principiante') as Difficulty;
                   return (
                     <TouchableOpacity
                       key={ex.id}
@@ -189,7 +227,10 @@ export default function DayScreen() {
                     >
                       <View style={styles.pickerItemInfo}>
                         <Text style={[styles.pickerItemName, alreadyAdded && styles.pickerItemNameDisabled]}>{ex.name}</Text>
-                        <Text style={styles.pickerItemMeta}>{ex.muscleGroup}</Text>
+                        <Text style={styles.pickerItemMeta}>
+                          {ex.muscleGroup}{ex.equipment ? ` · ${ex.equipment}` : ''}
+                        </Text>
+                        <View style={[styles.pickerDifficultyDot, { backgroundColor: DIFFICULTY_COLORS[difficulty] }]} />
                       </View>
                       {alreadyAdded && (
                         <View style={styles.addedBadge}>
@@ -200,6 +241,9 @@ export default function DayScreen() {
                     </TouchableOpacity>
                   );
                 })}
+                {filteredExercises.length === 0 && (
+                  <Text style={styles.pickerEmptyText}>No se encontraron ejercicios</Text>
+                )}
               </ScrollView>
             </>
           )}
@@ -277,7 +321,17 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 15, color: Colors.text },
   pickerList: { flex: 1 },
-  pickerListContent: { padding: 16, gap: 6 },
+  pickerChips: { paddingHorizontal: 16, paddingVertical: 10, gap: 6 },
+  pickerChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 9,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+  },
+  pickerChipActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primary },
+  pickerChipText: { fontSize: 12, fontWeight: '600' as const, color: Colors.textMuted },
+  pickerChipTextActive: { color: Colors.primary },
+  pickerListContent: { padding: 16, paddingTop: 4, gap: 6 },
+  pickerEmptyText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', paddingTop: 32 },
+  pickerDifficultyDot: { position: 'absolute', right: 0, top: 2, width: 6, height: 6, borderRadius: 3 },
   pickerItem: {
     backgroundColor: Colors.surface, borderRadius: 12, padding: 14,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

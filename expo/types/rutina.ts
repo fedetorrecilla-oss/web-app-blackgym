@@ -3,6 +3,9 @@ export interface RutinaExercise {
   name: string;
   videoUrl: string;
   muscleGroup: string;
+  equipment?: string;
+  difficulty?: Difficulty;
+  notes?: string;
 }
 
 export interface RutinaTemplate {
@@ -51,3 +54,13 @@ export const MUSCLE_GROUPS = [
 ] as const;
 
 export type MuscleGroup = typeof MUSCLE_GROUPS[number];
+
+export const EQUIPMENT_TYPES = [
+  'Barra', 'Mancuernas', 'Máquina', 'Polea', 'Peso corporal', 'Kettlebell', 'Bandas', 'Otro',
+] as const;
+
+export type Equipment = typeof EQUIPMENT_TYPES[number];
+
+export const DIFFICULTIES = ['principiante', 'intermedio', 'avanzado'] as const;
+
+export type Difficulty = typeof DIFFICULTIES[number];

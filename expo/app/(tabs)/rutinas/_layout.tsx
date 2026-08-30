@@ -13,7 +13,7 @@ export default function RutinasLayout() {
       <Stack.Screen name="index" options={{ title: 'Rutinas' }} />
       <Stack.Screen name="template" options={{ title: 'Template' }} />
       <Stack.Screen name="day" options={{ title: 'Día' }} />
-      <Stack.Screen name="catalog" options={{ title: 'Catálogo de Ejercicios' }} />
+      <Stack.Screen name="catalog" options={{ title: 'Biblioteca de Ejercicios' }} />
       <Stack.Screen name="assign" options={{ title: 'Asignar Rutina' }} />
     </Stack>
   );

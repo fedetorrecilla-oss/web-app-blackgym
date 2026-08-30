@@ -15,6 +15,9 @@ const exerciseSchema = z.object({
   name: z.string(),
   videoUrl: z.string(),
   muscleGroup: z.string(),
+  equipment: z.string().optional(),
+  difficulty: z.enum(["principiante", "intermedio", "avanzado"]).optional(),
+  notes: z.string().optional(),
 });
 
 const templateSchema = z.object({

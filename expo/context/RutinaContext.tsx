@@ -9,6 +9,7 @@ import {
   RutinaDayExercise,
   RutinaWorkout,
   RutinaWorkoutSet,
+  Difficulty,
 } from '@/types/rutina';
 import { SEED_EXERCISES } from '@/constants/rutina-seeds';
 import { STANDARD_TEMPLATES } from '@/constants/rutina-templates';
@@ -252,15 +253,26 @@ export const [RutinaProvider, useRutina] = createContextHook(() => {
     setWorkoutSetsMut.mutate({ workoutSets: data });
   }, [setWorkoutSetsMut]);
 
-  const addExercise = useCallback(async (name: string, videoUrl: string, muscleGroup: string) => {
-    const exercise: RutinaExercise = { id: generateId(), name, videoUrl, muscleGroup };
+  const addExercise = useCallback(async (
+    name: string,
+    videoUrl: string,
+    muscleGroup: string,
+    extras?: { equipment?: string; difficulty?: Difficulty; notes?: string },
+  ) => {
+    const exercise: RutinaExercise = { id: generateId(), name, videoUrl, muscleGroup, ...extras };
     await persistExercises([...exercises, exercise]);
     console.log('[RutinaContext] Exercise added:', name);
     return exercise;
   }, [exercises, persistExercises]);
 
-  const updateExercise = useCallback(async (id: string, name: string, videoUrl: string, muscleGroup: string) => {
-    const updated = exercises.map(e => e.id === id ? { ...e, name, videoUrl, muscleGroup } : e);
+  const updateExercise = useCallback(async (
+    id: string,
+    name: string,
+    videoUrl: string,
+    muscleGroup: string,
+    extras?: { equipment?: string; difficulty?: Difficulty; notes?: string },
+  ) => {
+    const updated = exercises.map(e => e.id === id ? { ...e, name, videoUrl, muscleGroup, ...extras } : e);
     await persistExercises(updated);
   }, [exercises, persistExercises]);
 

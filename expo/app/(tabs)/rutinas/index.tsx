@@ -16,7 +16,7 @@ import {
   Plus,
   Trash2,
   ChevronRight,
-  BookOpen,
+  Library,
   UserPlus,
   X,
 } from 'lucide-react-native';
@@ -103,8 +103,8 @@ export default function RutinasScreen() {
           onPress={() => router.push('/rutinas/catalog' as any)}
           activeOpacity={0.7}
         >
-          <BookOpen size={16} color={Colors.primary} />
-          <Text style={styles.headerBtnText}>Catálogo</Text>
+          <Library size={16} color={Colors.primary} />
+          <Text style={styles.headerBtnText}>Ejercicios</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.headerBtn}
