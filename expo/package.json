@@ -6,7 +6,8 @@
     "start": "bunx rork start -p awr11wa2533f9ct5q8ryq",
     "start-web": "bunx rork start -p awr11wa2533f9ct5q8ryq --web",
     "start-web-dev": "DEBUG=expo* bunx rork start -p awr11wa2533f9ct5q8ryq --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "postinstall": "node scripts/patch-ai-provider-utils.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
