@@ -1,0 +1,22 @@
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -407,7 +407,7 @@
+   return builtinModule == null ? await importNodeModule(id) : builtinModule;
+ }
+ function importNodeModule(id) {
+-  return import(id);
++  return new Function('id', 'return import(id);')(id);
+ }
+ function getCurrentModulePath() {
+   const originalPrepareStackTrace = Error.prepareStackTrace;
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -509,7 +509,7 @@
+   return builtinModule == null ? await importNodeModule(id) : builtinModule;
+ }
+ function importNodeModule(id) {
+-  return import(id);
++  return new Function('id', 'return import(id);')(id);
+ }
+ function getCurrentModulePath() {
+   const originalPrepareStackTrace = Error.prepareStackTrace;
