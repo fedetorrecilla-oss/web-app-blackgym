@@ -56,6 +56,7 @@
     },
   },
   "patchedDependencies": {
+    "react-native@0.81.5": "patches/react-native@0.81.5.patch",
     "@ai-sdk/provider-utils@3.0.35": "patches/@ai-sdk__provider-utils.patch",
   },
   "packages": {
