@@ -1,6 +1,25 @@
 --- a/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -415,6 +415,7 @@
+@@ -371,7 +371,17 @@
+         // See https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
+         throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
+       } else {
+-        @throw exception;
++        // App-level stability patch (see scripts/patch-rn-turbomodule.js):
++        // the re-thrown exception would terminate the app because nothing on
++        // the async dispatch path catches it. Log the failure and leave the
++        // promise unsettled instead of crashing.
++        NSLog(
++            @"[RCTTurboModule] Promise method %@.%@ threw %@: %@\n%@",
++            moduleName != nullptr ? [NSString stringWithUTF8String:moduleName] : @"unknown",
++            [NSString stringWithUTF8String:methodNameStr.c_str()],
++            exception.name,
++            exception.reason ?: @"(no reason)",
++            [exception callStackSymbols]);
+       }
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+@@ -415,6 +425,7 @@
      NSInvocation *inv,
      NSMutableArray *retainedObjectsForInvocation)
  {
@@ -8,7 +27,7 @@
    __weak id<RCTBridgeModule> weakModule = instance_;
    const char *moduleName = name_.c_str();
    std::string methodNameStr{methodName};
-@@ -435,7 +436,19 @@
+@@ -435,7 +446,19 @@
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {

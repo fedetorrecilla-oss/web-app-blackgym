@@ -6,10 +6,10 @@
 //
 //   return new Function('id', 'return import(id);')(id);
 //
-// Also patches React Native's RCTTurboModule.mm so an NSException thrown by an
-// async void TurboModule method is logged instead of crashing the app at
-// launch (iOS 26 release builds; upstream facebook/react-native#56265 only
-// re-throws, which still terminates the app).
+// Also patches React Native's RCTTurboModule.mm — that logic lives in
+// scripts/patch-rn-turbomodule.js (delegated below) and is additionally wired
+// as the ./plugins/withTurboModulePatch Expo config plugin so it runs during
+// `expo prebuild` even if install hooks are skipped in CI.
 //
 // Runs idempotently via the package.json `postinstall` hook so both patches are
 // re-applied after every dependency install.
@@ -47,53 +47,15 @@ console.log(
     : "[patch-ai-provider-utils] nothing to patch.",
 );
 
-// --- RCTTurboModule.mm: swallow NSException from async void methods ---------
+// --- RCTTurboModule.mm: swallow NSException from async TM methods -----------
+// Delegated to scripts/patch-rn-turbomodule.js, which covers BOTH crash paths
+// (async void and async promise methods) and is shared with the config plugin.
 
-const TURBO_MODULE_MM = path.join(
-  __dirname,
-  "..",
-  "node_modules",
-  "react-native",
-  "ReactCommon",
-  "react",
-  "nativemodule",
-  "core",
-  "platform",
-  "ios",
-  "ReactCommon",
-  "RCTTurboModule.mm",
-);
+const { patchRCTTurboModule } = require("./patch-rn-turbomodule");
 
-const UNSAFE_VOID_CATCH =
-  "      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);\n" +
-  "    } @finally {";
-
-const SAFE_VOID_CATCH =
-  "      // App-level stability patch (on top of upstream facebook/react-native#56265):\n" +
-  "      // converting to JSError corrupts Hermes (SIGABRT on iOS 26 release builds),\n" +
-  "      // and re-throwing still terminates the app because nothing on the async\n" +
-  "      // dispatch path catches the exception. A void method's JS side cannot\n" +
-  "      // receive an error (no promise/callback), so log the failure and keep the\n" +
-  "      // app running instead of crashing at launch.\n" +
-  '      NSLog(\n' +
-  '          @"[RCTTurboModule] Void method %@.%@ threw %@: %@\\n%@",\n' +
-  '          moduleName != nullptr ? [NSString stringWithUTF8String:moduleName] : @"unknown",\n' +
-  '          [NSString stringWithUTF8String:methodNameStr.c_str()],\n' +
-  '          exception.name,\n' +
-  '          exception.reason ?: @"(no reason)",\n' +
-  '          [exception callStackSymbols]);\n' +
-  "    } @finally {";
-
-try {
-  const source = fs.readFileSync(TURBO_MODULE_MM, "utf8");
-  if (source.includes(SAFE_VOID_CATCH)) {
-    console.log("[patch-rn-turbomodule] already patched.");
-  } else if (source.includes(UNSAFE_VOID_CATCH)) {
-    fs.writeFileSync(TURBO_MODULE_MM, source.replace(UNSAFE_VOID_CATCH, SAFE_VOID_CATCH));
-    console.log("[patch-rn-turbomodule] patched RCTTurboModule.mm void-method exception handling.");
-  } else {
-    console.log("[patch-rn-turbomodule] unexpected RCTTurboModule.mm content — manual review needed.");
-  }
-} catch {
-  // react-native not installed yet — nothing to patch.
+const rnResult = patchRCTTurboModule(path.join(__dirname, ".."));
+if (rnResult.status === "patched") {
+  console.log(`[patch-rn-turbomodule] patched: ${rnResult.changes.join(", ")}.`);
+} else if (rnResult.status === "unexpected") {
+  console.warn(`[patch-rn-turbomodule] ${rnResult.status}: ${rnResult.reason}`);
 }
