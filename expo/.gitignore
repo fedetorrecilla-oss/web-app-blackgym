@@ -10,7 +10,9 @@ web-build/
 expo-env.d.ts
 
 # Native
-ios/
+# NOTE: ios/ is committed on purpose — it contains BlackGym's crash
+# diagnostics (CrashDiagnostics.mm + AppDelegate hook) and must ship even if
+# the build pipeline skips prebuild. android/ stays generated.
 android/
 *.orig.*
 *.jks

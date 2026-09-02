@@ -36,7 +36,8 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "./plugins/withTurboModulePatch"
+      "./plugins/withTurboModulePatch",
+      "./plugins/withCrashDiagnostics"
     ],
     "experiments": {
       "typedRoutes": true
