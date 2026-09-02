@@ -9,8 +9,6 @@ import { GymProvider } from '@/context/GymContext';
 import { RutinaProvider } from '@/context/RutinaContext';
 import { trpc, trpcClient } from '@/lib/trpc';
 
-SplashScreen.preventAutoHideAsync();
-
 const queryClient = new QueryClient();
 
 // Catches any render/startup error and shows a recovery screen instead of
@@ -58,7 +56,10 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   useEffect(() => {
-    SplashScreen.hideAsync();
+    // Deferred to mount: module-scope native calls crash release builds on
+    // iOS 26 before the error boundary exists (TurboModule void-method bug).
+    SplashScreen.preventAutoHideAsync().catch(() => {});
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   return (
