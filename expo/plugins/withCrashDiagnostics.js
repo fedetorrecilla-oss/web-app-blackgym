@@ -60,7 +60,12 @@ final class CrashDiagnostics: NSObject {
   /// ANTES de arrancar React Native. Aquí la app está viva, así que copiar
   /// funciona (a diferencia del pasteboard durante std::terminate, que
   /// necesita un XPC round-trip que nunca completa antes del abort).
-  /// Bloquea el launch hasta que el usuario elija una acción.
+  ///
+  /// Bloquea el launch SOLO si la alerta realmente se presentó. La ventana se
+  /// adjunta a la UIWindowScene activa (una UIWindow(frame:) sin scene no se
+  /// muestra ni recibe toques en apps con ciclo de vida por scenes — eso
+  /// congeló el launch en el build 15). Sin scene o tras un timeout de
+  /// seguridad se continúa y el archivo queda para el próximo launch.
   static func presentPendingReport() {
     shouldContinueLaunch = false
     guard let report = try? String(contentsOfFile: reportPath, encoding: .utf8),
@@ -69,10 +74,22 @@ final class CrashDiagnostics: NSObject {
       return
     }
 
-    let window = UIWindow(frame: UIScreen.main.bounds)
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+    guard let windowScene = scene else {
+      // Sin scene no hay ventana posible: NO bloquear el launch.
+      NSLog("[Black Gym] reporte pendiente: sin UIWindowScene, se omite la alerta")
+      return
+    }
+
+    NSLog("[Black Gym] reporte pendiente: mostrando alerta")
+
+    let window = UIWindow(windowScene: windowScene)
+    window.frame = windowScene.coordinateSpace.bounds
     let root = UIViewController()
     root.view.backgroundColor = .systemBackground
     window.rootViewController = root
+    window.windowLevel = .alert + 1
     window.makeKeyAndVisible()
     pendingReportWindow = window
 
@@ -97,11 +114,19 @@ final class CrashDiagnostics: NSObject {
       shouldContinueLaunch = true
     })
 
-    root.present(alert, animated: true)
+    root.present(alert, animated: false)
 
-    while !shouldContinueLaunch {
-      RunLoop.main.run(mode: .default, before: Date.distantFuture)
+    // Red de seguridad: si a los 120s nadie tocó nada (p. ej. la alerta no
+    // llegó a presentarse), dejamos seguir — el archivo queda para el
+    // próximo launch y el app no queda congelada para siempre.
+    let deadline = Date().addingTimeInterval(120)
+    while !shouldContinueLaunch && Date() < deadline {
+      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
     }
+    if !shouldContinueLaunch {
+      NSLog("[Black Gym] reporte pendiente: timeout, se continúa el launch")
+    }
+    window.isHidden = true
     pendingReportWindow = nil
   }
 
