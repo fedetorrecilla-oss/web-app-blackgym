@@ -22,16 +22,17 @@ final class CrashDiagnostics: NSObject {
     }
   }
 
-  /// Muestra el reporte del último crash (si existe) en una alerta nativa
-  /// ANTES de arrancar React Native. Aquí la app está viva, así que copiar
-  /// funciona (a diferencia del pasteboard durante std::terminate, que
-  /// necesita un XPC round-trip que nunca completa antes del abort).
+  /// Muestra el reporte del último crash (si existe) ANTES de arrancar React
+  /// Native, en una pantalla nativa propia (NO un UIAlertController): la
+  /// ventana se vuelve key con contenido REAL (texto + botones), lo que
+  /// fuerza a iOS a descartar el snapshot del launch screen. Los builds
+  /// 15/16 fallaron porque el splash tapaba la alerta modal (el snapshot del
+  /// launch screen queda arriba de TODAS las ventanas hasta que la key
+  /// window commitea su primer frame, sin importar el windowLevel) y/o la
+  /// presentación modal nunca se completaba durante didFinishLaunching.
   ///
-  /// Bloquea el launch SOLO si la alerta realmente se presentó. La ventana se
-  /// adjunta a la UIWindowScene activa (una UIWindow(frame:) sin scene no se
-  /// muestra ni recibe toques en apps con ciclo de vida por scenes — eso
-  /// congeló el launch en el build 15). Sin scene o tras un timeout de
-  /// seguridad se continúa y el archivo queda para el próximo launch.
+  /// El launch se bloquea hasta que el usuario elige una acción (aquí la app
+  /// está viva, así que copiar funciona), con timeout de seguridad de 120s.
   static func presentPendingReport() {
     shouldContinueLaunch = false
     guard let report = try? String(contentsOfFile: reportPath, encoding: .utf8),
@@ -44,47 +45,29 @@ final class CrashDiagnostics: NSObject {
     let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
     guard let windowScene = scene else {
       // Sin scene no hay ventana posible: NO bloquear el launch.
-      NSLog("[Black Gym] reporte pendiente: sin UIWindowScene, se omite la alerta")
+      NSLog("[Black Gym] reporte pendiente: sin UIWindowScene, se omite la pantalla")
       return
     }
 
-    NSLog("[Black Gym] reporte pendiente: mostrando alerta")
+    NSLog("[Black Gym] reporte pendiente: mostrando pantalla de diagnóstico")
 
     let window = UIWindow(windowScene: windowScene)
     window.frame = windowScene.coordinateSpace.bounds
-    let root = UIViewController()
-    root.view.backgroundColor = .systemBackground
-    window.rootViewController = root
     window.windowLevel = .alert + 1
+    window.rootViewController = CrashDiagnostics.makeReportViewController(report: report) {
+      shouldContinueLaunch = true
+    }
     window.makeKeyAndVisible()
+    window.isHidden = false
     pendingReportWindow = window
 
-    let alert = UIAlertController(
-      title: "Último fallo detectado",
-      message: String(report.prefix(1600)),
-      preferredStyle: .alert
-    )
+    // Forzar layout inmediato: el primer frame de esta ventana es el que
+    // descarta el splash; así ese frame ya incluye todo el contenido.
+    window.rootViewController?.view.setNeedsLayout()
+    window.rootViewController?.view.layoutIfNeeded()
 
-    alert.addAction(UIAlertAction(title: "Copiar y cerrar", style: .default) { _ in
-      UIPasteboard.general.string = report
-      try? FileManager.default.removeItem(atPath: reportPath)
-      exit(0)
-    })
-    alert.addAction(UIAlertAction(title: "Copiar y continuar", style: .default) { _ in
-      UIPasteboard.general.string = report
-      try? FileManager.default.removeItem(atPath: reportPath)
-      shouldContinueLaunch = true
-    })
-    alert.addAction(UIAlertAction(title: "Continuar sin copiar", style: .cancel) { _ in
-      try? FileManager.default.removeItem(atPath: reportPath)
-      shouldContinueLaunch = true
-    })
-
-    root.present(alert, animated: false)
-
-    // Red de seguridad: si a los 120s nadie tocó nada (p. ej. la alerta no
-    // llegó a presentarse), dejamos seguir — el archivo queda para el
-    // próximo launch y el app no queda congelada para siempre.
+    // Red de seguridad: si a los 120s nadie tocó nada, dejamos seguir — el
+    // archivo queda para el próximo launch y el app no queda congelada.
     let deadline = Date().addingTimeInterval(120)
     while !shouldContinueLaunch && Date() < deadline {
       RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
@@ -94,6 +77,105 @@ final class CrashDiagnostics: NSObject {
     }
     window.isHidden = true
     pendingReportWindow = nil
+  }
+
+  /// Pantalla de diagnóstico propia: título + reporte seleccionable (se puede
+  /// leer y copiar a mano con long-press) + botones nativos. Sin
+  /// presentaciones modales que puedan fallar durante el launch.
+  private static func makeReportViewController(
+    report: String,
+    onFinish: @escaping () -> Void
+  ) -> UIViewController {
+    let accent = UIColor(red: 0.776, green: 0.945, blue: 0.208, alpha: 1) // #C6F135
+    let background = UIColor(red: 0.016, green: 0.016, blue: 0.016, alpha: 1) // #040404
+
+    let vc = UIViewController()
+    vc.view.backgroundColor = background
+
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.spacing = 12
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    vc.view.addSubview(stack)
+
+    let title = UILabel()
+    title.text = "Último fallo detectado"
+    title.font = .systemFont(ofSize: 20, weight: .bold)
+    title.textColor = accent
+    title.textAlignment = .center
+
+    let hint = UILabel()
+    hint.text = "Tocá un botón para copiar el reporte o continuar."
+    hint.font = .systemFont(ofSize: 13)
+    hint.textColor = .secondaryLabel
+    hint.textAlignment = .center
+    hint.numberOfLines = 0
+
+    let textView = UITextView()
+    textView.text = report
+    textView.font = UIFont(name: "Menlo", size: 10) ?? .systemFont(ofSize: 10)
+    textView.textColor = .white
+    textView.backgroundColor = UIColor(white: 0.08, alpha: 1)
+    textView.layer.cornerRadius = 10
+    textView.isEditable = false
+    textView.isSelectable = true
+
+    let copyClose = makeReportButton("Copiar y cerrar", accent: accent) {
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      exit(0)
+    }
+    let copyContinue = makeReportButton("Copiar y continuar", accent: nil) {
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      onFinish()
+    }
+    let skip = makeReportButton("Continuar sin copiar", accent: nil) {
+      try? FileManager.default.removeItem(atPath: reportPath)
+      onFinish()
+    }
+
+    for button in [copyClose, copyContinue, skip] {
+      button.heightAnchor.constraint(equalToConstant: 48).isActive = true
+    }
+
+    stack.addArrangedSubview(title)
+    stack.addArrangedSubview(hint)
+    stack.addArrangedSubview(textView)
+    stack.addArrangedSubview(copyClose)
+    stack.addArrangedSubview(copyContinue)
+    stack.addArrangedSubview(skip)
+
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.topAnchor, constant: 16),
+      stack.bottomAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+      stack.leadingAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+      stack.trailingAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+      textView.heightAnchor.constraint(equalTo: stack.heightAnchor, multiplier: 0.5),
+    ])
+
+    return vc
+  }
+
+  private static func makeReportButton(
+    _ title: String,
+    accent: UIColor?,
+    action: @escaping () -> Void
+  ) -> UIButton {
+    let button = UIButton(type: .system)
+    var config = UIButton.Configuration.filled()
+    config.title = title
+    config.cornerStyle = .medium
+    if let accent = accent {
+      config.baseBackgroundColor = accent
+      config.baseForegroundColor = .black
+    } else {
+      config.baseBackgroundColor = UIColor(white: 0.15, alpha: 1)
+      config.baseForegroundColor = .white
+    }
+    button.configuration = config
+    button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+    return button
   }
 
   static func handle(_ report: String) {
