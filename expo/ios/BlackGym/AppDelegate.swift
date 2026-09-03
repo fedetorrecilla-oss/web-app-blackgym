@@ -11,6 +11,9 @@ final class CrashDiagnostics: NSObject {
     return (caches as NSString).appendingPathComponent("blackgym_last_crash.txt")
   }()
 
+  private static var pendingReportWindow: UIWindow?
+  private static var shouldContinueLaunch = false
+
   static func install() {
     NSSetUncaughtExceptionHandler { exception in
       let stack = exception.callStackSymbols.joined(separator: "\n")
@@ -19,10 +22,58 @@ final class CrashDiagnostics: NSObject {
     }
   }
 
+  /// Muestra el reporte del último crash (si existe) en una alerta nativa
+  /// ANTES de arrancar React Native. Aquí la app está viva, así que copiar
+  /// funciona (a diferencia del pasteboard durante std::terminate, que
+  /// necesita un XPC round-trip que nunca completa antes del abort).
+  /// Bloquea el launch hasta que el usuario elija una acción.
+  static func presentPendingReport() {
+    shouldContinueLaunch = false
+    guard let report = try? String(contentsOfFile: reportPath, encoding: .utf8),
+          !report.isEmpty else {
+      try? FileManager.default.removeItem(atPath: reportPath)
+      return
+    }
+
+    let window = UIWindow(frame: UIScreen.main.bounds)
+    let root = UIViewController()
+    root.view.backgroundColor = .systemBackground
+    window.rootViewController = root
+    window.makeKeyAndVisible()
+    pendingReportWindow = window
+
+    let alert = UIAlertController(
+      title: "Último fallo detectado",
+      message: String(report.prefix(1600)),
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "Copiar y cerrar", style: .default) { _ in
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      exit(0)
+    })
+    alert.addAction(UIAlertAction(title: "Copiar y continuar", style: .default) { _ in
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      shouldContinueLaunch = true
+    })
+    alert.addAction(UIAlertAction(title: "Continuar sin copiar", style: .cancel) { _ in
+      try? FileManager.default.removeItem(atPath: reportPath)
+      shouldContinueLaunch = true
+    })
+
+    root.present(alert, animated: true)
+
+    while !shouldContinueLaunch {
+      RunLoop.main.run(mode: .default, before: Date.distantFuture)
+    }
+    pendingReportWindow = nil
+  }
+
   static func handle(_ report: String) {
     NSLog("%@", report)
     try? report.write(toFile: reportPath, atomically: true, encoding: .utf8)
-    UIPasteboard.general.string = report
   }
 }
 // BLACKGYM_CRASH_DIAGNOSTICS_END
@@ -39,6 +90,7 @@ public class AppDelegate: ExpoAppDelegate {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     CrashDiagnostics.install()
+    CrashDiagnostics.presentPendingReport()
 
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)

@@ -2,10 +2,9 @@
 // See plugins/withCrashDiagnostics.js for the rationale.
 
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
 
+#include <cstdlib>
 #include <exception>
-#include <execinfo.h>
 
 static std::terminate_handler g_previousTerminateHandler = nullptr;
 
@@ -17,42 +16,26 @@ static void BlackGymWriteReport(NSString *report) {
   NSString *path = [caches.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
   [report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
-  // Survives relaunch: the user can paste this into Notes even while the app
-  // keeps crashing at launch.
-  UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
-  pasteboard.string = report;
+  // The file is the reliable channel: the pasteboard needs an XPC round-trip
+  // that does not complete before abort(), so it is intentionally skipped
+  // here. The report is surfaced by CrashDiagnostics.presentPendingReport()
+  // on the next launch, while the app is fully alive.
 }
 
-// ObjC and C++ exceptions share the Itanium ABI on arm64, so the in-flight
-// exception can be re-thrown and re-caught to identify its type.
-static NSString *BlackGymDescribeObjCException(std::exception_ptr eptr) {
-  @try {
-    std::rethrow_exception(eptr);
-  } @catch (NSException *exception) {
-    NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"];
-    return [NSString stringWithFormat:@"ObjC NSException\nname: %@\nreason: %@\nstack:\n%@",
-                                      exception.name, exception.reason ?: @"(none)", stack];
-  } @catch (...) {
-    return nil;
-  }
-}
-
-static NSString *BlackGymDescribeCppException(std::exception_ptr eptr) {
+static NSString *BlackGymDescribeActiveException(std::exception_ptr eptr) {
   try {
     std::rethrow_exception(eptr);
   } catch (const std::exception &e) {
-    void *frames[64];
-    int count = backtrace(frames, 64);
-    char **symbols = backtrace_symbols(frames, count);
-    NSMutableString *stack = [NSMutableString string];
-    for (int i = 0; i < count; i++) {
-      [stack appendFormat:@"%s\n", symbols[i]];
+    NSString *what = [NSString stringWithUTF8String:e.what()];
+    if (!what) {
+      what = @"(unreadable what())";
     }
-    free(symbols);
-    return [NSString stringWithFormat:@"C++ std::exception\nwhat(): %s\nbacktrace:\n%@", e.what(), stack];
+    NSString *stack = [[NSThread callStackSymbols] componentsJoinedByString:@"\n"];
+    return [NSString stringWithFormat:@"C++ std::exception\nwhat(): %@\nstack:\n%@", what, stack];
   } catch (...) {
     return @"C++ exception of unknown type";
   }
+  return nil; // Unreachable — keeps -Werror=return-type quiet.
 }
 
 static void BlackGymTerminateHandler(void) {
@@ -61,11 +44,7 @@ static void BlackGymTerminateHandler(void) {
 
   std::exception_ptr eptr = std::current_exception();
   if (eptr) {
-    NSString *description = BlackGymDescribeObjCException(eptr);
-    if (!description) {
-      description = BlackGymDescribeCppException(eptr);
-    }
-    [report appendFormat:@"%@\n", description];
+    [report appendFormat:@"%@\n", BlackGymDescribeActiveException(eptr)];
   } else {
     [report appendString:@"(no active exception)\n"];
   }

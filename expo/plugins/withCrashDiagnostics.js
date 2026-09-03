@@ -14,9 +14,12 @@
 //   2. NSSetUncaughtExceptionHandler in the AppDelegate for plain ObjC
 //      exceptions.
 //
-// Reports go to NSLog, to Library/Caches/blackgym_last_crash.txt, and to the
-// UIPasteboard (survives relaunch — paste into Notes to read it) so the data
-// is recoverable from a TestFlight device even while the app keeps crashing.
+// Reports go to NSLog and to Library/Caches/blackgym_last_crash.txt.
+// UIPasteboard from the terminate handler is NOT reliable: it needs an XPC
+// round-trip that never completes before abort(). Instead, on the NEXT launch
+// — before React Native starts — the AppDelegate reads the file and shows it
+// in a native alert with copy actions. The app is fully alive there, so the
+// clipboard and exit(0) both work; launch is blocked until the user chooses.
 //
 // Everything here is first-party app-target code (AppDelegate + a new .mm in
 // the Xcode project), not a node_modules patch, so it cannot be dropped by
@@ -42,6 +45,9 @@ final class CrashDiagnostics: NSObject {
     return (caches as NSString).appendingPathComponent("blackgym_last_crash.txt")
   }()
 
+  private static var pendingReportWindow: UIWindow?
+  private static var shouldContinueLaunch = false
+
   static func install() {
     NSSetUncaughtExceptionHandler { exception in
       let stack = exception.callStackSymbols.joined(separator: "\n")
@@ -50,10 +56,58 @@ final class CrashDiagnostics: NSObject {
     }
   }
 
+  /// Muestra el reporte del último crash (si existe) en una alerta nativa
+  /// ANTES de arrancar React Native. Aquí la app está viva, así que copiar
+  /// funciona (a diferencia del pasteboard durante std::terminate, que
+  /// necesita un XPC round-trip que nunca completa antes del abort).
+  /// Bloquea el launch hasta que el usuario elija una acción.
+  static func presentPendingReport() {
+    shouldContinueLaunch = false
+    guard let report = try? String(contentsOfFile: reportPath, encoding: .utf8),
+          !report.isEmpty else {
+      try? FileManager.default.removeItem(atPath: reportPath)
+      return
+    }
+
+    let window = UIWindow(frame: UIScreen.main.bounds)
+    let root = UIViewController()
+    root.view.backgroundColor = .systemBackground
+    window.rootViewController = root
+    window.makeKeyAndVisible()
+    pendingReportWindow = window
+
+    let alert = UIAlertController(
+      title: "Último fallo detectado",
+      message: String(report.prefix(1600)),
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "Copiar y cerrar", style: .default) { _ in
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      exit(0)
+    })
+    alert.addAction(UIAlertAction(title: "Copiar y continuar", style: .default) { _ in
+      UIPasteboard.general.string = report
+      try? FileManager.default.removeItem(atPath: reportPath)
+      shouldContinueLaunch = true
+    })
+    alert.addAction(UIAlertAction(title: "Continuar sin copiar", style: .cancel) { _ in
+      try? FileManager.default.removeItem(atPath: reportPath)
+      shouldContinueLaunch = true
+    })
+
+    root.present(alert, animated: true)
+
+    while !shouldContinueLaunch {
+      RunLoop.main.run(mode: .default, before: Date.distantFuture)
+    }
+    pendingReportWindow = nil
+  }
+
   static func handle(_ report: String) {
     NSLog("%@", report)
     try? report.write(toFile: reportPath, atomically: true, encoding: .utf8)
-    UIPasteboard.general.string = report
   }
 }
 ${END}`;
@@ -62,10 +116,9 @@ const objcDiagnostics = String.raw`// BLACKGYM CRASH DIAGNOSTICS — std::termin
 // See plugins/withCrashDiagnostics.js for the rationale.
 
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
 
+#include <cstdlib>
 #include <exception>
-#include <execinfo.h>
 
 static std::terminate_handler g_previousTerminateHandler = nullptr;
 
@@ -77,42 +130,26 @@ static void BlackGymWriteReport(NSString *report) {
   NSString *path = [caches.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
   [report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
-  // Survives relaunch: the user can paste this into Notes even while the app
-  // keeps crashing at launch.
-  UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
-  pasteboard.string = report;
+  // The file is the reliable channel: the pasteboard needs an XPC round-trip
+  // that does not complete before abort(), so it is intentionally skipped
+  // here. The report is surfaced by CrashDiagnostics.presentPendingReport()
+  // on the next launch, while the app is fully alive.
 }
 
-// ObjC and C++ exceptions share the Itanium ABI on arm64, so the in-flight
-// exception can be re-thrown and re-caught to identify its type.
-static NSString *BlackGymDescribeObjCException(std::exception_ptr eptr) {
-  @try {
-    std::rethrow_exception(eptr);
-  } @catch (NSException *exception) {
-    NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"];
-    return [NSString stringWithFormat:@"ObjC NSException\nname: %@\nreason: %@\nstack:\n%@",
-                                      exception.name, exception.reason ?: @"(none)", stack];
-  } @catch (...) {
-    return nil;
-  }
-}
-
-static NSString *BlackGymDescribeCppException(std::exception_ptr eptr) {
+static NSString *BlackGymDescribeActiveException(std::exception_ptr eptr) {
   try {
     std::rethrow_exception(eptr);
   } catch (const std::exception &e) {
-    void *frames[64];
-    int count = backtrace(frames, 64);
-    char **symbols = backtrace_symbols(frames, count);
-    NSMutableString *stack = [NSMutableString string];
-    for (int i = 0; i < count; i++) {
-      [stack appendFormat:@"%s\n", symbols[i]];
+    NSString *what = [NSString stringWithUTF8String:e.what()];
+    if (!what) {
+      what = @"(unreadable what())";
     }
-    free(symbols);
-    return [NSString stringWithFormat:@"C++ std::exception\nwhat(): %s\nbacktrace:\n%@", e.what(), stack];
+    NSString *stack = [[NSThread callStackSymbols] componentsJoinedByString:@"\n"];
+    return [NSString stringWithFormat:@"C++ std::exception\nwhat(): %@\nstack:\n%@", what, stack];
   } catch (...) {
     return @"C++ exception of unknown type";
   }
+  return nil; // Unreachable — keeps -Werror=return-type quiet.
 }
 
 static void BlackGymTerminateHandler(void) {
@@ -121,11 +158,7 @@ static void BlackGymTerminateHandler(void) {
 
   std::exception_ptr eptr = std::current_exception();
   if (eptr) {
-    NSString *description = BlackGymDescribeObjCException(eptr);
-    if (!description) {
-      description = BlackGymDescribeCppException(eptr);
-    }
-    [report appendFormat:@"%@\n", description];
+    [report appendFormat:@"%@\n", BlackGymDescribeActiveException(eptr)];
   } else {
     [report appendString:@"(no active exception)\n"];
   }
@@ -170,10 +203,11 @@ const withAppDelegateDiagnostics = (config) =>
       contents = contents.replace("@UIApplicationMain", `${swiftDiagnostics}\n\n@UIApplicationMain`);
     }
 
+    const launchBody = "  ) -> Bool {\n    let delegate = ReactNativeDelegate()";
+    const patchedBody =
+      "  ) -> Bool {\n    CrashDiagnostics.install()\n    CrashDiagnostics.presentPendingReport()\n\n    let delegate = ReactNativeDelegate()";
+
     if (!contents.includes("CrashDiagnostics.install()")) {
-      const launchBody = "  ) -> Bool {\n    let delegate = ReactNativeDelegate()";
-      const patchedBody =
-        "  ) -> Bool {\n    CrashDiagnostics.install()\n\n    let delegate = ReactNativeDelegate()";
       if (contents.includes(launchBody)) {
         contents = contents.replace(launchBody, patchedBody);
       } else {
@@ -181,6 +215,12 @@ const withAppDelegateDiagnostics = (config) =>
           "[withCrashDiagnostics] didFinishLaunchingWithOptions body not found — handler not installed",
         );
       }
+    } else if (!contents.includes("CrashDiagnostics.presentPendingReport()")) {
+      // Already injected for build 13 (install only) — add the report alert call.
+      contents = contents.replace(
+        "CrashDiagnostics.install()",
+        "CrashDiagnostics.install()\n    CrashDiagnostics.presentPendingReport()",
+      );
     }
 
     if (isFileObject) {
