@@ -113,6 +113,12 @@ final class CrashDiagnostics: NSObject {
       return false
     }
 
+    // La gateway del backend a veces limita por ráfaga (429/503); una segunda
+    // ronda tras una pausa aumenta mucho la tasa de entrega del reporte.
+    for attempt in 0..<2 {
+      if attempt > 0 {
+        Thread.sleep(forTimeInterval: 3)
+      }
     for base in candidates {
       guard let url = URL(string: base + "/api/trpc/crash.submit") else { continue }
       var request = URLRequest(url: url)
@@ -138,6 +144,7 @@ final class CrashDiagnostics: NSObject {
         try? FileManager.default.removeItem(atPath: reportPath)
         NSLog("[Black Gym] reporte subido al backend OK")
         return true
+      }
       }
     }
     return false

@@ -1,6 +1,6 @@
 --- a/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -371,7 +371,17 @@
+@@ -371,7 +371,92 @@
          // See https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
          throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
        } else {
@@ -16,10 +16,85 @@
 +            exception.name,
 +            exception.reason ?: @"(no reason)",
 +            [exception callStackSymbols]);
++        {
++          // BLACKGYM_CAPTURE_BEGIN: guarda al culpable en el canal de reportes de
++          // Black Gym y lo sube al backend en background. Así la excepción atrapada
++          // sigue diciéndonos QUIÉN la lanzó aunque el app ya no termine.
++          @autoreleasepool {
++            NSString *bgModule = moduleName != nullptr ? [NSString stringWithUTF8String:moduleName] : @"unknown";
++            NSString *bgMethod = [NSString stringWithUTF8String:methodNameStr.c_str()];
++            NSString *bgReport = [NSString stringWithFormat:
++                @"[Black Gym] TurboModule exception (caught; app kept running)\nat: %@\nmodule: %@\nmethod: %@\nname: %@\nreason: %@\nstack:\n%@",
++                [NSDate date], bgModule, bgMethod, exception.name,
++                exception.reason ?: @"(no reason)", [exception callStackSymbols]];
++            NSString *bgCaches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
++            NSString *bgPath = [bgCaches stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
++            NSMutableString *bgExisting = [NSMutableString stringWithContentsOfFile:bgPath encoding:NSUTF8StringEncoding error:NULL];
++            if (bgExisting.length > 200000) {
++              bgExisting = [NSMutableString new];
++            }
++            if (bgExisting.length > 0) {
++              [bgExisting appendString:@"\n\n====\n\n"];
++            }
++            [bgExisting appendString:bgReport];
++            [bgExisting writeToFile:bgPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
++            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++              @autoreleasepool {
++                NSDictionary *bgPayload = @{
++                  @"json": @{
++                    @"report": bgReport,
++                    @"build": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"?",
++                    @"device": [[NSProcessInfo processInfo] operatingSystemVersionString],
++                  },
++                };
++                NSData *bgBody = [NSJSONSerialization dataWithJSONObject:bgPayload options:0 error:NULL];
++                if (bgBody == nil) {
++                  return;
++                }
++                NSArray<NSString *> *bgBases = @[
++                  [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BlackGymDiagnosticsBaseURL"] ?: @"",
++                  [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BlackGymDiagnosticsFallbackURL"] ?: @"",
++                ];
++                for (NSString *bgBase in bgBases) {
++                  if (bgBase.length == 0) {
++                    continue;
++                  }
++                  NSURL *bgURL = [NSURL URLWithString:[bgBase stringByAppendingString:@"/api/trpc/crash.submit"]];
++                  if (bgURL == nil) {
++                    continue;
++                  }
++                  NSMutableURLRequest *bgRequest = [NSMutableURLRequest requestWithURL:bgURL];
++                  bgRequest.HTTPMethod = @"POST";
++                  [bgRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
++                  bgRequest.timeoutInterval = 10;
++                  bgRequest.HTTPBody = bgBody;
++                  __block BOOL bgOK = NO;
++                  dispatch_semaphore_t bgSem = dispatch_semaphore_create(0);
++                  NSURLSessionDataTask *bgTask = [[NSURLSession sharedSession]
++                      dataTaskWithRequest:bgRequest
++                      completionHandler:^(NSData *bgData, NSURLResponse *bgResponse, NSError *bgError) {
++                        bgOK = bgError == nil && [bgResponse isKindOfClass:[NSHTTPURLResponse class]] &&
++                            ((NSHTTPURLResponse *)bgResponse).statusCode == 200;
++                        dispatch_semaphore_signal(bgSem);
++                      }];
++                  [bgTask resume];
++                  dispatch_semaphore_wait(bgSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(12 * NSEC_PER_SEC)));
++                  if (bgOK) {
++                    NSLog(@"[Black Gym] reporte TurboModule subido OK");
++                    [[NSFileManager defaultManager] removeItemAtPath:bgPath error:NULL];
++                    return;
++                  }
++                  NSLog(@"[Black Gym] upload TurboModule falló");
++                  [NSThread sleepForTimeInterval:3.0];
++                }
++              }
++            });
++          }
++        }
        }
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
-@@ -415,6 +425,7 @@
+@@ -415,6 +500,7 @@
      NSInvocation *inv,
      NSMutableArray *retainedObjectsForInvocation)
  {
@@ -27,7 +102,7 @@
    __weak id<RCTBridgeModule> weakModule = instance_;
    const char *moduleName = name_.c_str();
    std::string methodNameStr{methodName};
-@@ -435,7 +446,19 @@
+@@ -435,7 +521,94 @@
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
@@ -45,6 +120,81 @@
 +          exception.name,
 +          exception.reason ?: @"(no reason)",
 +          [exception callStackSymbols]);
++      {
++        // BLACKGYM_CAPTURE_BEGIN: guarda al culpable en el canal de reportes de
++        // Black Gym y lo sube al backend en background. Así la excepción atrapada
++        // sigue diciéndonos QUIÉN la lanzó aunque el app ya no termine.
++        @autoreleasepool {
++          NSString *bgModule = moduleName != nullptr ? [NSString stringWithUTF8String:moduleName] : @"unknown";
++          NSString *bgMethod = [NSString stringWithUTF8String:methodNameStr.c_str()];
++          NSString *bgReport = [NSString stringWithFormat:
++              @"[Black Gym] TurboModule exception (caught; app kept running)\nat: %@\nmodule: %@\nmethod: %@\nname: %@\nreason: %@\nstack:\n%@",
++              [NSDate date], bgModule, bgMethod, exception.name,
++              exception.reason ?: @"(no reason)", [exception callStackSymbols]];
++          NSString *bgCaches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
++          NSString *bgPath = [bgCaches stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
++          NSMutableString *bgExisting = [NSMutableString stringWithContentsOfFile:bgPath encoding:NSUTF8StringEncoding error:NULL];
++          if (bgExisting.length > 200000) {
++            bgExisting = [NSMutableString new];
++          }
++          if (bgExisting.length > 0) {
++            [bgExisting appendString:@"\n\n====\n\n"];
++          }
++          [bgExisting appendString:bgReport];
++          [bgExisting writeToFile:bgPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
++          dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++            @autoreleasepool {
++              NSDictionary *bgPayload = @{
++                @"json": @{
++                  @"report": bgReport,
++                  @"build": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"?",
++                  @"device": [[NSProcessInfo processInfo] operatingSystemVersionString],
++                },
++              };
++              NSData *bgBody = [NSJSONSerialization dataWithJSONObject:bgPayload options:0 error:NULL];
++              if (bgBody == nil) {
++                return;
++              }
++              NSArray<NSString *> *bgBases = @[
++                [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BlackGymDiagnosticsBaseURL"] ?: @"",
++                [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BlackGymDiagnosticsFallbackURL"] ?: @"",
++              ];
++              for (NSString *bgBase in bgBases) {
++                if (bgBase.length == 0) {
++                  continue;
++                }
++                NSURL *bgURL = [NSURL URLWithString:[bgBase stringByAppendingString:@"/api/trpc/crash.submit"]];
++                if (bgURL == nil) {
++                  continue;
++                }
++                NSMutableURLRequest *bgRequest = [NSMutableURLRequest requestWithURL:bgURL];
++                bgRequest.HTTPMethod = @"POST";
++                [bgRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
++                bgRequest.timeoutInterval = 10;
++                bgRequest.HTTPBody = bgBody;
++                __block BOOL bgOK = NO;
++                dispatch_semaphore_t bgSem = dispatch_semaphore_create(0);
++                NSURLSessionDataTask *bgTask = [[NSURLSession sharedSession]
++                    dataTaskWithRequest:bgRequest
++                    completionHandler:^(NSData *bgData, NSURLResponse *bgResponse, NSError *bgError) {
++                      bgOK = bgError == nil && [bgResponse isKindOfClass:[NSHTTPURLResponse class]] &&
++                          ((NSHTTPURLResponse *)bgResponse).statusCode == 200;
++                      dispatch_semaphore_signal(bgSem);
++                    }];
++                [bgTask resume];
++                dispatch_semaphore_wait(bgSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(12 * NSEC_PER_SEC)));
++                if (bgOK) {
++                  NSLog(@"[Black Gym] reporte TurboModule subido OK");
++                  [[NSFileManager defaultManager] removeItemAtPath:bgPath error:NULL];
++                  return;
++                }
++                NSLog(@"[Black Gym] upload TurboModule falló");
++                [NSThread sleepForTimeInterval:3.0];
++              }
++            }
++          });
++        }
++      }
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
      }
