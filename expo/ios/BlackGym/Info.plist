@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <key>BlackGymDiagnosticsBaseURL</key>
+    <string>https://dev-awr11wa2533f9ct5q8ryq.rorktest.dev</string>
+    <key>BlackGymDiagnosticsFallbackURL</key>
+    <string>https://web-app-solution-vzypr6u-backend.rork.app</string>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
     <key>CFBundleDevelopmentRegion</key>

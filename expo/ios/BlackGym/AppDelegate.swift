@@ -41,6 +41,12 @@ final class CrashDiagnostics: NSObject {
       return
     }
 
+    // 1) Canal automático: subir al backend SIN interacción del usuario.
+    if CrashDiagnostics.tryUploadPendingReport(report: report) {
+      return // el archivo ya se borró; el launch continúa en silencio
+    }
+
+    // 2) Fallback manual: pantalla de diagnóstico propia.
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
     guard let windowScene = scene else {
@@ -77,6 +83,64 @@ final class CrashDiagnostics: NSObject {
     }
     window.isHidden = true
     pendingReportWindow = nil
+  }
+
+  /// Sube el reporte al backend (tRPC superjson) sin interacción del usuario.
+  /// Prueba la URL principal y la de fallback (Info.plist). Corre antes de
+  /// arrancar RN, así que aunque RN crashee segundos después, el reporte ya
+  /// viajó. Devuelve true si alguna URL aceptó el reporte (y borra el archivo).
+  static func tryUploadPendingReport(report: String) -> Bool {
+    let candidates: [String] = [
+      (Bundle.main.object(forInfoDictionaryKey: "BlackGymDiagnosticsBaseURL") as? String) ?? "",
+      (Bundle.main.object(forInfoDictionaryKey: "BlackGymDiagnosticsFallbackURL") as? String) ?? "",
+    ].filter { !$0.isEmpty }
+
+    guard !candidates.isEmpty else {
+      NSLog("[Black Gym] upload: sin URLs en Info.plist, se omite")
+      return false
+    }
+
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+    let device = UIDevice.current.model
+    let payload: [String: Any] = [
+      "json": [
+        "report": report,
+        "build": build,
+        "device": device,
+      ]
+    ]
+    guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
+      return false
+    }
+
+    for base in candidates {
+      guard let url = URL(string: base + "/api/trpc/crash.submit") else { continue }
+      var request = URLRequest(url: url)
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.timeoutInterval = 5
+      request.httpBody = body
+
+      var uploaded = false
+      let semaphore = DispatchSemaphore(value: 0)
+      let task = URLSession.shared.dataTask(with: request) { _, response, error in
+        if let http = response as? HTTPURLResponse, error == nil, http.statusCode == 200 {
+          uploaded = true
+        } else {
+          let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+          NSLog("[Black Gym] upload falló (status=\(status)): \(String(describing: error))")
+        }
+        semaphore.signal()
+      }
+      task.resume()
+      _ = semaphore.wait(timeout: .now() + 7)
+      if uploaded {
+        try? FileManager.default.removeItem(atPath: reportPath)
+        NSLog("[Black Gym] reporte subido al backend OK")
+        return true
+      }
+    }
+    return false
   }
 
   /// Pantalla de diagnóstico propia: título + reporte seleccionable (se puede
