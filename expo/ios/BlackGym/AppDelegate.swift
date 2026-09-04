@@ -151,8 +151,10 @@ final class CrashDiagnostics: NSObject {
   }
 
   /// Pantalla de diagnóstico propia: título + reporte seleccionable (se puede
-  /// leer y copiar a mano con long-press) + botones nativos. Sin
-  /// presentaciones modales que puedan fallar durante el launch.
+  /// leer y copiar a mano con long-press) + botones nativos (copiar,
+  /// continuar y compartir por WhatsApp/mail — canal independiente del
+  /// backend). Sin presentaciones modales durante el launch; el share sheet
+  /// se presenta solo tras un toque del usuario.
   private static func makeReportViewController(
     report: String,
     onFinish: @escaping () -> Void
@@ -205,8 +207,19 @@ final class CrashDiagnostics: NSObject {
       try? FileManager.default.removeItem(atPath: reportPath)
       onFinish()
     }
+    let share = makeReportButton("Compartir reporte (WhatsApp / mail)", accent: nil) {
+      // Presentado solo tras un toque explícito, cuando el launch ya corre
+      // dentro del RunLoop propio de esta pantalla: la presentación modal es
+      // segura ahí (las builds 15/16 fallaron solo al presentarla DURANTE
+      // didFinishLaunching, sin interacción del usuario).
+      let activityVC = UIActivityViewController(activityItems: [report], applicationActivities: nil)
+      activityVC.popoverPresentationController?.sourceView = vc.view
+      activityVC.popoverPresentationController?.sourceRect = CGRect(
+        x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 80, width: 1, height: 1)
+      vc.present(activityVC, animated: true)
+    }
 
-    for button in [copyClose, copyContinue, skip] {
+    for button in [copyClose, copyContinue, skip, share] {
       button.heightAnchor.constraint(equalToConstant: 48).isActive = true
     }
 
@@ -216,6 +229,7 @@ final class CrashDiagnostics: NSObject {
     stack.addArrangedSubview(copyClose)
     stack.addArrangedSubview(copyContinue)
     stack.addArrangedSubview(skip)
+    stack.addArrangedSubview(share)
 
     NSLayoutConstraint.activate([
       stack.topAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.topAnchor, constant: 16),
