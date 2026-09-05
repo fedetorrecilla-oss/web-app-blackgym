@@ -26,7 +26,8 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
   useEffect(() => {
     let active = true;
     try {
-      const reportFile = new File(Paths.cache, NATIVE_REPORT_FILE);
+      // Documents: el sistema no la purga (a diferencia de Caches).
+      const reportFile = new File(Paths.document, NATIVE_REPORT_FILE);
       if (reportFile.exists) {
         reportFile
           .text()

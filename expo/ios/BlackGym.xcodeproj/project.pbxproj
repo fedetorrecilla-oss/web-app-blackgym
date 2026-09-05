@@ -11,7 +11,7 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		3D6E9E5BA04644E5961A0F46 /* CrashDiagnostics.mm in Resources */ = {isa = PBXBuildFile; fileRef = 8E493A112A544D6E99EB1749 /* CrashDiagnostics.mm */; };
+		4FB45815C35E4DAAB79D08CE /* CrashDiagnostics.mm in Resources */ = {isa = PBXBuildFile; fileRef = 3DA4A42E3B474EDFABD1FEEC /* CrashDiagnostics.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,7 +23,7 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = BlackGym/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* BlackGym-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "BlackGym-Bridging-Header.h"; path = "BlackGym/BlackGym-Bridging-Header.h"; sourceTree = "<group>"; };
-		8E493A112A544D6E99EB1749 /* CrashDiagnostics.mm */ = {isa = PBXFileReference; name = "CrashDiagnostics.mm"; path = "BlackGym/CrashDiagnostics.mm"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = sourcecode.cpp.objcpp; explicitFileType = undefined; includeInIndex = 0; };
+		3DA4A42E3B474EDFABD1FEEC /* CrashDiagnostics.mm */ = {isa = PBXFileReference; name = "CrashDiagnostics.mm"; path = "BlackGym/CrashDiagnostics.mm"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = sourcecode.cpp.objcpp; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +46,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				8E493A112A544D6E99EB1749 /* CrashDiagnostics.mm */,
+				3DA4A42E3B474EDFABD1FEEC /* CrashDiagnostics.mm */,
 			);
 			name = BlackGym;
 			sourceTree = "<group>";
@@ -103,6 +103,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "BlackGym" */;
 			buildPhases = (
+				D4BFE276A69A42A29DC305D9 /* Black Gym - Patch and verify RN TurboModule */,
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
@@ -225,6 +226,23 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-BlackGym/Pods-BlackGym-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		D4BFE276A69A42A29DC305D9 /* Black Gym - Patch and verify RN TurboModule */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			name = "Black Gym - Patch and verify RN TurboModule";
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			shellPath = /bin/sh;
+			shellScript = "set -e
+node \"$SRCROOT/../scripts/patch-rn-turbomodule.js\"
+grep -q \"BLACKGYM_CAPTURE_BEGIN\" \"$SRCROOT/../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm\"
+echo \"[BlackGym] RN TurboModule patch verified before Compile Sources.\"";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -233,7 +251,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				3D6E9E5BA04644E5961A0F46 /* CrashDiagnostics.mm in Resources */,
+				4FB45815C35E4DAAB79D08CE /* CrashDiagnostics.mm in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

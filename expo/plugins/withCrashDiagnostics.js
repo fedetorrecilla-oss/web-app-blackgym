@@ -14,7 +14,9 @@
 //   2. NSSetUncaughtExceptionHandler in the AppDelegate for plain ObjC
 //      exceptions.
 //
-// Reports go to NSLog and to Library/Caches/blackgym_last_crash.txt.
+// Reports go to NSLog and to Documents/blackgym_last_crash.txt (Documents is
+// never purged by the OS, unlike Caches; the reader also checks the legacy
+// Caches location so older builds' reports are not lost).
 // UIPasteboard from the terminate handler is NOT reliable: it needs an XPC
 // round-trip that never completes before abort(). Instead, on the NEXT launch
 // — before React Native starts — the AppDelegate reads the file and shows it
@@ -48,8 +50,8 @@ import UIKit
 
 final class CrashDiagnostics: NSObject {
   static let reportPath: String = {
-    let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
-    return (caches as NSString).appendingPathComponent("blackgym_last_crash.txt")
+    let docs = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
+    return (docs as NSString).appendingPathComponent("blackgym_last_crash.txt")
   }()
 
   private static var pendingReportWindow: UIWindow?
@@ -76,9 +78,7 @@ final class CrashDiagnostics: NSObject {
   /// está viva, así que copiar funciona), con timeout de seguridad de 120s.
   static func presentPendingReport() {
     shouldContinueLaunch = false
-    guard let report = try? String(contentsOfFile: reportPath, encoding: .utf8),
-          !report.isEmpty else {
-      try? FileManager.default.removeItem(atPath: reportPath)
+    guard let report = CrashDiagnostics.readPendingReport() else {
       return
     }
 
@@ -87,31 +87,41 @@ final class CrashDiagnostics: NSObject {
       return // el archivo ya se borró; el launch continúa en silencio
     }
 
-    // 2) Fallback manual: pantalla de diagnóstico propia.
-    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-    let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-    guard let windowScene = scene else {
-      // Sin scene no hay ventana posible: NO bloquear el launch.
-      NSLog("[Black Gym] reporte pendiente: sin UIWindowScene, se omite la pantalla")
+    // 2) Fallback manual: pantalla de diagnóstico propia. En
+    // didFinishLaunching puede no haber UIWindowScene conectada todavía —
+    // devolver en silencio acá hacía que la pantalla NO aparezca nunca
+    // (build 22). Esperamos hasta 10s a que haya una escena.
+    NSLog("[Black Gym] reporte pendiente: esperando UIWindowScene…")
+    let sceneDeadline = Date().addingTimeInterval(10)
+    var reportWindow: UIWindow? = nil
+    while reportWindow == nil && Date() < sceneDeadline {
+      let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      if let windowScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first {
+        NSLog("[Black Gym] reporte pendiente: mostrando pantalla de diagnóstico")
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = windowScene.coordinateSpace.bounds
+        window.windowLevel = .alert + 1
+        window.rootViewController = CrashDiagnostics.makeReportViewController(report: report) {
+          shouldContinueLaunch = true
+        }
+        window.makeKeyAndVisible()
+        window.isHidden = false
+        pendingReportWindow = window
+
+        // Forzar layout inmediato: el primer frame de esta ventana es el que
+        // descarta el splash; así ese frame ya incluye todo el contenido.
+        window.rootViewController?.view.setNeedsLayout()
+        window.rootViewController?.view.layoutIfNeeded()
+        reportWindow = window
+        break
+      }
+      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+    }
+
+    guard reportWindow != nil else {
+      NSLog("[Black Gym] reporte pendiente: sin UIWindowScene tras 10s, se continúa el launch")
       return
     }
-
-    NSLog("[Black Gym] reporte pendiente: mostrando pantalla de diagnóstico")
-
-    let window = UIWindow(windowScene: windowScene)
-    window.frame = windowScene.coordinateSpace.bounds
-    window.windowLevel = .alert + 1
-    window.rootViewController = CrashDiagnostics.makeReportViewController(report: report) {
-      shouldContinueLaunch = true
-    }
-    window.makeKeyAndVisible()
-    window.isHidden = false
-    pendingReportWindow = window
-
-    // Forzar layout inmediato: el primer frame de esta ventana es el que
-    // descarta el splash; así ese frame ya incluye todo el contenido.
-    window.rootViewController?.view.setNeedsLayout()
-    window.rootViewController?.view.layoutIfNeeded()
 
     // Red de seguridad: si a los 120s nadie tocó nada, dejamos seguir — el
     // archivo queda para el próximo launch y el app no queda congelada.
@@ -122,8 +132,31 @@ final class CrashDiagnostics: NSObject {
     if !shouldContinueLaunch {
       NSLog("[Black Gym] reporte pendiente: timeout, se continúa el launch")
     }
-    window.isHidden = true
+    reportWindow?.isHidden = true
     pendingReportWindow = nil
+  }
+
+  /// Lee el reporte pendiente. Ubicación actual: Documents (el sistema NO la
+  /// purga, a diferencia de Caches). Como fallback lee la ubicación vieja en
+  /// Caches para no perder reportes escritos por builds anteriores.
+  private static func readPendingReport() -> String? {
+    if let current = try? String(contentsOfFile: reportPath, encoding: .utf8), !current.isEmpty {
+      return current
+    }
+    let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
+    let legacyPath = (caches as NSString).appendingPathComponent("blackgym_last_crash.txt")
+    if let legacy = try? String(contentsOfFile: legacyPath, encoding: .utf8), !legacy.isEmpty {
+      return legacy
+    }
+    return nil
+  }
+
+  /// Borra el reporte en AMBAS ubicaciones (actual y legacy).
+  private static func deletePendingReport() {
+    try? FileManager.default.removeItem(atPath: reportPath)
+    let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
+    let legacyPath = (caches as NSString).appendingPathComponent("blackgym_last_crash.txt")
+    try? FileManager.default.removeItem(atPath: legacyPath)
   }
 
   /// Sube el reporte al backend (tRPC superjson) sin interacción del usuario.
@@ -182,7 +215,7 @@ final class CrashDiagnostics: NSObject {
       task.resume()
       _ = semaphore.wait(timeout: .now() + 7)
       if uploaded {
-        try? FileManager.default.removeItem(atPath: reportPath)
+        deletePendingReport()
         NSLog("[Black Gym] reporte subido al backend OK")
         return true
       }
@@ -236,16 +269,16 @@ final class CrashDiagnostics: NSObject {
 
     let copyClose = makeReportButton("Copiar y cerrar", accent: accent) {
       UIPasteboard.general.string = report
-      try? FileManager.default.removeItem(atPath: reportPath)
+      deletePendingReport()
       exit(0)
     }
     let copyContinue = makeReportButton("Copiar y continuar", accent: nil) {
       UIPasteboard.general.string = report
-      try? FileManager.default.removeItem(atPath: reportPath)
+      deletePendingReport()
       onFinish()
     }
     let skip = makeReportButton("Continuar sin copiar", accent: nil) {
-      try? FileManager.default.removeItem(atPath: reportPath)
+      deletePendingReport()
       onFinish()
     }
     let share = makeReportButton("Compartir reporte (WhatsApp / mail)", accent: nil) {
@@ -324,9 +357,9 @@ static std::terminate_handler g_previousTerminateHandler = nullptr;
 static void BlackGymWriteReport(NSString *report) {
   NSLog(@"%@", report);
 
-  NSArray<NSString *> *caches =
-      NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-  NSString *path = [caches.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
+  NSArray<NSString *> *docs =
+      NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  NSString *path = [docs.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
   [report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
   // The file is the reliable channel: the pasteboard needs an XPC round-trip

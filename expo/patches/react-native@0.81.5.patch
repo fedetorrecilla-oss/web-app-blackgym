@@ -27,8 +27,8 @@
 +                @"[Black Gym] TurboModule exception (caught; app kept running)\nat: %@\nmodule: %@\nmethod: %@\nname: %@\nreason: %@\nstack:\n%@",
 +                [NSDate date], bgModule, bgMethod, exception.name,
 +                exception.reason ?: @"(no reason)", [exception callStackSymbols]];
-+            NSString *bgCaches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
-+            NSString *bgPath = [bgCaches stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
++            NSString *bgDocs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
++            NSString *bgPath = [bgDocs stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
 +            NSMutableString *bgExisting = [NSMutableString stringWithContentsOfFile:bgPath encoding:NSUTF8StringEncoding error:NULL];
 +            if (bgExisting.length > 200000) {
 +              bgExisting = [NSMutableString new];
@@ -131,8 +131,8 @@
 +              @"[Black Gym] TurboModule exception (caught; app kept running)\nat: %@\nmodule: %@\nmethod: %@\nname: %@\nreason: %@\nstack:\n%@",
 +              [NSDate date], bgModule, bgMethod, exception.name,
 +              exception.reason ?: @"(no reason)", [exception callStackSymbols]];
-+          NSString *bgCaches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
-+          NSString *bgPath = [bgCaches stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
++          NSString *bgDocs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
++          NSString *bgPath = [bgDocs stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
 +          NSMutableString *bgExisting = [NSMutableString stringWithContentsOfFile:bgPath encoding:NSUTF8StringEncoding error:NULL];
 +          if (bgExisting.length > 200000) {
 +            bgExisting = [NSMutableString new];

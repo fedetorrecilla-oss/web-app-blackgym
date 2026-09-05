@@ -11,9 +11,9 @@ static std::terminate_handler g_previousTerminateHandler = nullptr;
 static void BlackGymWriteReport(NSString *report) {
   NSLog(@"%@", report);
 
-  NSArray<NSString *> *caches =
-      NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-  NSString *path = [caches.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
+  NSArray<NSString *> *docs =
+      NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  NSString *path = [docs.firstObject stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
   [report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
   // The file is the reliable channel: the pasteboard needs an XPC round-trip

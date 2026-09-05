@@ -8,9 +8,10 @@
 // method's promise would hang — both are strictly better than a hard crash.
 //
 // V2 additionally captures the culprit (module, method, reason, stack) into
-// the Black Gym report channel (Library/Caches/blackgym_last_crash.txt) and
-// uploads it to the backend in the background, so a caught exception still
-// tells us WHO threw it even though the app no longer terminates.
+// the Black Gym report channel (Documents/blackgym_last_crash.txt — Documents
+// no es purgable, a diferencia de Caches) and uploads it to the backend in
+// the background, so a caught exception still tells us WHO threw it even
+// though the app no longer terminates.
 //
 // Applied three ways so it ships regardless of the build pipeline's package
 // manager:
@@ -59,8 +60,8 @@ const CAPTURE_LINES = String.raw`{
         @"[Black Gym] TurboModule exception (caught; app kept running)\nat: %@\nmodule: %@\nmethod: %@\nname: %@\nreason: %@\nstack:\n%@",
         [NSDate date], bgModule, bgMethod, exception.name,
         exception.reason ?: @"(no reason)", [exception callStackSymbols]];
-    NSString *bgCaches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
-    NSString *bgPath = [bgCaches stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
+    NSString *bgDocs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject ?: NSTemporaryDirectory();
+    NSString *bgPath = [bgDocs stringByAppendingPathComponent:@"blackgym_last_crash.txt"];
     NSMutableString *bgExisting = [NSMutableString stringWithContentsOfFile:bgPath encoding:NSUTF8StringEncoding error:NULL];
     if (bgExisting.length > 200000) {
       bgExisting = [NSMutableString new];
@@ -252,8 +253,12 @@ if (require.main === module) {
   } else if (result.status === "already") {
     console.log("[patch-rn-turbomodule] already patched.");
   } else {
-    console.log(
+    console.error(
       `[patch-rn-turbomodule] ${result.status}${result.reason ? `: ${result.reason}` : ""} — manual review needed.`,
     );
+    // Fail-fast: el build phase del proyecto nativo y el guardia del Podfile
+    // dependen de que este script aborte si el parche no queda aplicado, para
+    // que NUNCA se compile un binario sin el parche en silencio.
+    process.exitCode = 1;
   }
 }
