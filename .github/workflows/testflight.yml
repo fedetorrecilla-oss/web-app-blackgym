@@ -39,6 +39,41 @@ jobs:
             && echo "Patch verified in node_modules." \
             || (echo "::error::RN TurboModule patch missing before pod install — aborting build." && exit 1)
 
+      - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
+        working-directory: expo/ios
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+
+          path = "Podfile"
+          with open(path) as f:
+              content = f.read()
+
+          anchor = ":ccache_enabled => ccache_enabled?(podfile_properties),\n    )\n  end"
+          if anchor not in content:
+              print("::error::Podfile post_install anchor not found — Podfile format may have changed, cannot apply fmt fix.")
+              sys.exit(1)
+
+          patch = (
+              ":ccache_enabled => ccache_enabled?(podfile_properties),\n"
+              "    )\n"
+              "    installer.pods_project.targets.each do |target|\n"
+              "      if target.name == 'fmt'\n"
+              "        target.build_configurations.each do |config|\n"
+              "          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'\n"
+              "        end\n"
+              "      end\n"
+              "    end\n"
+              "  end"
+          )
+
+          content = content.replace(anchor, patch)
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("Podfile patched: fmt pod forced to build with C++17 (fixes Xcode 26 consteval/FMT_STRING compile error).")
+          PYEOF
+
       - name: Install CocoaPods dependencies
         working-directory: expo/ios
         env:
