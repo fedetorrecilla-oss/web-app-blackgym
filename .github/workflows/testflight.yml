@@ -87,6 +87,7 @@ jobs:
             -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
             -authenticationKeyPath "$HOME/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
             DEVELOPMENT_TEAM=2H88882YG5
 
       - name: Export IPA
