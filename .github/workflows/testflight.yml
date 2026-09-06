@@ -83,7 +83,7 @@ jobs:
 
       - name: Bump build number
         working-directory: expo/ios
-        run: /usr/libexec/PlistBuddy -c "Set CFBundleVersion ${{ github.run_number }}" BlackGym/Info.plist
+        run: /usr/libexec/PlistBuddy -c "Set CFBundleVersion $((1000 + ${{ github.run_number }}))" BlackGym/Info.plist
 
       - name: Write App Store Connect API key
         run: |
