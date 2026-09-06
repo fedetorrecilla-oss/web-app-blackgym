@@ -1,0 +1,122 @@
+name: Build and upload to TestFlight
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: expo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply RN TurboModule crash patch (explicit, fail-fast)
+        run: node scripts/patch-rn-turbomodule.js
+
+      - name: Verify the patch actually landed before pod install
+        run: |
+          grep -q "BLACKGYM_CAPTURE_BEGIN" node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm \
+            && echo "Patch verified in node_modules." \
+            || (echo "::error::RN TurboModule patch missing before pod install — aborting build." && exit 1)
+
+      - name: Install CocoaPods dependencies
+        working-directory: expo/ios
+        run: pod install
+
+      - name: Bump build number
+        working-directory: expo/ios
+        run: /usr/libexec/PlistBuddy -c "Set CFBundleVersion ${{ github.run_number }}" BlackGym/Info.plist
+
+      - name: Write App Store Connect API key
+        run: |
+          mkdir -p "$HOME/private_keys" "$HOME/.appstoreconnect/private_keys"
+          cat > "$HOME/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" <<'KEYEOF'
+          ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          KEYEOF
+          cp "$HOME/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" "$HOME/.appstoreconnect/private_keys/"
+
+      - name: Write ExportOptions.plist
+        working-directory: expo/ios
+        run: |
+          cat > ExportOptions.plist <<'PLISTEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>2H88882YG5</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          PLISTEOF
+
+      - name: Archive
+        working-directory: expo/ios
+        run: |
+          xcodebuild archive \
+            -workspace BlackGym.xcworkspace \
+            -scheme BlackGym \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/BlackGym.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_ISSUER_ID }}" \
+            -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
+            -authenticationKeyPath "$HOME/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM=2H88882YG5
+
+      - name: Export IPA
+        working-directory: expo/ios
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/BlackGym.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_ISSUER_ID }}" \
+            -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
+            -authenticationKeyPath "$HOME/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8"
+
+      - name: Upload to TestFlight
+        run: |
+          IPA=$(find "$RUNNER_TEMP/export" -name "*.ipa" | head -n1)
+          echo "Uploading $IPA"
+          xcrun altool --upload-app \
+            --type ios \
+            -f "$IPA" \
+            --apiKey "${{ secrets.APPSTORE_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APPSTORE_ISSUER_ID }}"
+
+      - name: Save build output for debugging (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            expo/ios/*.xcresult
+            expo/ios/build
+          if-no-files-found: ignore
