@@ -41,7 +41,7 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: expo/ios
-         env:
+        env:
           RCT_USE_PREBUILT_RNCORE: "0"
           RCT_USE_RN_DEP: "0"
         run: pod install
