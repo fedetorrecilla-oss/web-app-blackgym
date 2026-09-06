@@ -72,6 +72,50 @@ jobs:
           print("Removed the blocking semaphore-wait crash-report upload from both catch blocks (kept the NSLog-only logging).")
           PYEOF
 
+      - name: "Remove blocking pre-RN crash-report upload from AppDelegate (real root cause of the launch hang)"
+        working-directory: expo/ios
+        run: |
+          python3 - <<'PYEOF'
+          path = "BlackGym/AppDelegate.swift"
+          with open(path) as f:
+              content = f.read()
+
+          anchor = (
+              "    CrashDiagnostics.install()\n"
+              "    CrashDiagnostics.presentPendingReport()\n"
+              "\n"
+              "    let delegate = ReactNativeDelegate()"
+          )
+          count = content.count(anchor)
+          if count != 1:
+              print(f"::error::Expected exactly 1 occurrence of the presentPendingReport() launch call (found {count}) — AppDelegate.swift shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch = (
+              "    CrashDiagnostics.install()\n"
+              "\n"
+              "    let delegate = ReactNativeDelegate()"
+          )
+          content = content.replace(anchor, patch)
+
+          call_site = "    CrashDiagnostics.presentPendingReport()\n\n    let delegate"
+          if call_site in content:
+              print("::error::presentPendingReport() call site still present after patch — aborting.")
+              raise SystemExit(1)
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("AppDelegate.swift patched: removed the synchronous, main-thread, pre-RN crash-report upload call")
+          print("that runs inside didFinishLaunchingWithOptions. This call could block for up to ~30s (2 upload")
+          print("attempts x 2 URLs x up to 7s semaphore wait, plus a 3s sleep between attempts) whenever a stale")
+          print("blackgym_last_crash.txt file already existed in Documents (written by ANY earlier crash, on ANY")
+          print("earlier build, since Documents is never purged across TestFlight updates) - this exactly matches")
+          print("the 0x8BADF00D 'scene-create watchdog transgression' kills seen in the real crash logs (~20s wall")
+          print("clock, very low CPU = blocked on network I/O, not busy compute). CrashDiagnostics.install() (the")
+          print("harmless uncaught-exception logger) is kept; only the blocking upload-before-RN-starts call is removed.")
+          PYEOF
+
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
         working-directory: expo/ios
         run: |
