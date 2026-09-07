@@ -14,6 +14,167 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: "Fix silent black-screen hang: never let a stuck native call block first render"
+        run: |
+          python3 - <<'PYEOF'
+          path = "context/GymContext.tsx"
+          with open(path) as f:
+              content = f.read()
+
+          anchor1 = (
+              "function generateId(): string {\n"
+              "  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n"
+              "}\n"
+              "\n"
+              "export const [GymProvider, useGym] = createContextHook(() => {"
+          )
+          count1 = content.count(anchor1)
+          if count1 != 1:
+              print(f"::error::GymContext.tsx anchor1 not found exactly once (found {count1}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch1 = (
+              "function generateId(): string {\n"
+              "  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n"
+              "}\n"
+              "\n"
+              "// Black Gym stability patch: on some iOS 26 devices a native TurboModule call\n"
+              "// (including AsyncStorage.getItem) can throw internally, and the current RN patch\n"
+              "// (scripts/patch-rn-turbomodule.js) leaves the corresponding JS promise unsettled\n"
+              "// instead of crashing or rejecting -- so an unprotected await here can hang forever\n"
+              "// and the app never gets past the loading screen. Race every local-storage read\n"
+              "// against a timeout so a stuck native call can never block first render; treat a\n"
+              "// timeout the same as \"nothing stored yet\" (same as a fresh install).\n"
+              "function safeGetItem(key: string): Promise<string | null> {\n"
+              "  return Promise.race([\n"
+              "    AsyncStorage.getItem(key),\n"
+              "    new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 4000)),\n"
+              "  ]);\n"
+              "}\n"
+              "\n"
+              "export const [GymProvider, useGym] = createContextHook(() => {"
+          )
+          content = content.replace(anchor1, patch1)
+
+          anchor2 = (
+              "      const [storedStudents, storedBookings, storedBlocked, storedPayments, storedPricing, storedUser] =\n"
+              "        await Promise.all([\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.students),\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.bookings),\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.blockedSlots),\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.payments),\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.pricing),\n"
+              "          AsyncStorage.getItem(STORAGE_KEYS.currentUser),\n"
+              "        ]);"
+          )
+          count2 = content.count(anchor2)
+          if count2 != 1:
+              print(f"::error::GymContext.tsx anchor2 not found exactly once (found {count2}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch2 = (
+              "      const [storedStudents, storedBookings, storedBlocked, storedPayments, storedPricing, storedUser] =\n"
+              "        await Promise.all([\n"
+              "          safeGetItem(STORAGE_KEYS.students),\n"
+              "          safeGetItem(STORAGE_KEYS.bookings),\n"
+              "          safeGetItem(STORAGE_KEYS.blockedSlots),\n"
+              "          safeGetItem(STORAGE_KEYS.payments),\n"
+              "          safeGetItem(STORAGE_KEYS.pricing),\n"
+              "          safeGetItem(STORAGE_KEYS.currentUser),\n"
+              "        ]);"
+          )
+          content = content.replace(anchor2, patch2)
+
+          with open(path, "w") as f:
+              f.write(content)
+          print("GymContext.tsx patched: local-storage reads now time out after 4s instead of hanging forever.")
+          PYEOF
+
+          python3 - <<'PYEOF'
+          path = "context/RutinaContext.tsx"
+          with open(path) as f:
+              content = f.read()
+
+          anchor1 = (
+              "const KEYS = {\n"
+              "  exercises: 'rutina_exercises',\n"
+              "  templates: 'rutina_templates',\n"
+              "  days: 'rutina_days',\n"
+              "  dayExercises: 'rutina_day_exercises',\n"
+              "  workouts: 'rutina_workouts',\n"
+              "  workoutSets: 'rutina_workout_sets',\n"
+              "  seeded: 'rutina_seeded',\n"
+              "} as const;\n"
+              "\n"
+              "export const [RutinaProvider, useRutina] = createContextHook(() => {"
+          )
+          count1 = content.count(anchor1)
+          if count1 != 1:
+              print(f"::error::RutinaContext.tsx anchor1 not found exactly once (found {count1}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch1 = (
+              "const KEYS = {\n"
+              "  exercises: 'rutina_exercises',\n"
+              "  templates: 'rutina_templates',\n"
+              "  days: 'rutina_days',\n"
+              "  dayExercises: 'rutina_day_exercises',\n"
+              "  workouts: 'rutina_workouts',\n"
+              "  workoutSets: 'rutina_workout_sets',\n"
+              "  seeded: 'rutina_seeded',\n"
+              "} as const;\n"
+              "\n"
+              "// Black Gym stability patch: see the matching comment in context/GymContext.tsx.\n"
+              "// Race every local-storage read against a timeout so a native TurboModule call\n"
+              "// that throws internally (leaving its JS promise unsettled) can never hang the\n"
+              "// app forever at launch.\n"
+              "function safeGetItem(key: string): Promise<string | null> {\n"
+              "  return Promise.race([\n"
+              "    AsyncStorage.getItem(key),\n"
+              "    new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 4000)),\n"
+              "  ]);\n"
+              "}\n"
+              "\n"
+              "export const [RutinaProvider, useRutina] = createContextHook(() => {"
+          )
+          content = content.replace(anchor1, patch1)
+
+          anchor2 = (
+              "      const [sExercises, sTemplates, sDays, sDayExercises, sWorkouts, sWorkoutSets, sSeeded] =\n"
+              "        await Promise.all([\n"
+              "          AsyncStorage.getItem(KEYS.exercises),\n"
+              "          AsyncStorage.getItem(KEYS.templates),\n"
+              "          AsyncStorage.getItem(KEYS.days),\n"
+              "          AsyncStorage.getItem(KEYS.dayExercises),\n"
+              "          AsyncStorage.getItem(KEYS.workouts),\n"
+              "          AsyncStorage.getItem(KEYS.workoutSets),\n"
+              "          AsyncStorage.getItem(KEYS.seeded),\n"
+              "        ]);"
+          )
+          count2 = content.count(anchor2)
+          if count2 != 1:
+              print(f"::error::RutinaContext.tsx anchor2 not found exactly once (found {count2}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch2 = (
+              "      const [sExercises, sTemplates, sDays, sDayExercises, sWorkouts, sWorkoutSets, sSeeded] =\n"
+              "        await Promise.all([\n"
+              "          safeGetItem(KEYS.exercises),\n"
+              "          safeGetItem(KEYS.templates),\n"
+              "          safeGetItem(KEYS.days),\n"
+              "          safeGetItem(KEYS.dayExercises),\n"
+              "          safeGetItem(KEYS.workouts),\n"
+              "          safeGetItem(KEYS.workoutSets),\n"
+              "          safeGetItem(KEYS.seeded),\n"
+              "        ]);"
+          )
+          content = content.replace(anchor2, patch2)
+
+          with open(path, "w") as f:
+              f.write(content)
+          print("RutinaContext.tsx patched: local-storage reads now time out after 4s instead of hanging forever.")
+          PYEOF
+
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
