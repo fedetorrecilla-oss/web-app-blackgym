@@ -630,6 +630,142 @@ jobs:
           print("harmless uncaught-exception logger) is kept; only the blocking upload-before-RN-starts call is removed.")
           PYEOF
 
+      - name: "Add native boot-alive overlay (diagnostic: does ANY custom UI render before JS/React even starts?)"
+        working-directory: expo/ios
+        run: |
+          python3 - <<'PYEOF'
+          path = "BlackGym/AppDelegate.swift"
+          with open(path) as f:
+              content = f.read()
+
+          anchor_var = (
+              "  private static var pendingReportWindow: UIWindow?\n"
+              "  private static var shouldContinueLaunch = false\n"
+          )
+          count_var = content.count(anchor_var)
+          if count_var != 1:
+              print(f"::error::AppDelegate.swift anchor_var not found exactly once (found {count_var}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch_var = (
+              "  private static var pendingReportWindow: UIWindow?\n"
+              "  private static var shouldContinueLaunch = false\n"
+              "  private static var bootAliveWindow: UIWindow?\n"
+          )
+          content = content.replace(anchor_var, patch_var)
+
+          anchor_func = (
+              "  static func install() {\n"
+              "    NSSetUncaughtExceptionHandler { exception in\n"
+              "      let stack = exception.callStackSymbols.joined(separator: \"\\n\")\n"
+              "      let report = \"[Black Gym] Uncaught NSException\\nname: \\(exception.name.rawValue)\\nreason: \\(exception.reason ?? \"(none)\")\\nstack:\\n\\(stack)\"\n"
+              "      CrashDiagnostics.handle(report)\n"
+              "    }\n"
+              "  }\n"
+              "\n"
+              "  /// Muestra el reporte del último crash (si existe) ANTES de arrancar React"
+          )
+          count_func = content.count(anchor_func)
+          if count_func != 1:
+              print(f"::error::AppDelegate.swift anchor_func not found exactly once (found {count_func}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          new_func = (
+              "  /// Diagnóstico temporal: muestra un cartel nativo (fuera de React) apenas\n"
+              "  /// arranca la app, con el mismo truco de ventana a windowLevel .alert+1 que\n"
+              "  /// ya sabemos que descarta el snapshot del launch screen (lo usa\n"
+              "  /// presentPendingReport). No depende de que el bridge de RN ni JS lleguen a\n"
+              "  /// correr, así que confirma si ALGO puede pintar en pantalla antes de\n"
+              "  /// sospechar de React/JS. A diferencia de presentPendingReport, no bloquea\n"
+              "  /// el launch esperando ninguna acción del usuario.\n"
+              "  static func showBootAliveOverlay() {\n"
+              "    NSLog(\"[Black Gym] boot-alive: esperando UIWindowScene…\")\n"
+              "    let sceneDeadline = Date().addingTimeInterval(5)\n"
+              "    while Date() < sceneDeadline {\n"
+              "      let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }\n"
+              "      if let windowScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first {\n"
+              "        let window = UIWindow(windowScene: windowScene)\n"
+              "        window.frame = windowScene.coordinateSpace.bounds\n"
+              "        window.windowLevel = .alert + 1\n"
+              "\n"
+              "        let vc = UIViewController()\n"
+              "        vc.view.backgroundColor = UIColor(red: 0.016, green: 0.016, blue: 0.016, alpha: 1)\n"
+              "\n"
+              "        let label = UILabel()\n"
+              "        label.text = \"Black Gym\\n\\nDiagnóstico nativo: el arranque llegó hasta acá.\\n\\n(Este cartel es temporal, no es la app.)\"\n"
+              "        label.numberOfLines = 0\n"
+              "        label.textAlignment = .center\n"
+              "        label.textColor = UIColor(red: 0.776, green: 0.945, blue: 0.208, alpha: 1)\n"
+              "        label.font = .systemFont(ofSize: 17, weight: .semibold)\n"
+              "        label.translatesAutoresizingMaskIntoConstraints = false\n"
+              "        vc.view.addSubview(label)\n"
+              "\n"
+              "        NSLayoutConstraint.activate([\n"
+              "          label.centerXAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.centerXAnchor),\n"
+              "          label.centerYAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.centerYAnchor),\n"
+              "          label.leadingAnchor.constraint(greaterThanOrEqualTo: vc.view.safeAreaLayoutGuide.leadingAnchor, constant: 24),\n"
+              "          label.trailingAnchor.constraint(lessThanOrEqualTo: vc.view.safeAreaLayoutGuide.trailingAnchor, constant: -24),\n"
+              "        ])\n"
+              "\n"
+              "        window.rootViewController = vc\n"
+              "        window.makeKeyAndVisible()\n"
+              "        window.isHidden = false\n"
+              "        window.rootViewController?.view.setNeedsLayout()\n"
+              "        window.rootViewController?.view.layoutIfNeeded()\n"
+              "\n"
+              "        bootAliveWindow = window\n"
+              "        NSLog(\"[Black Gym] boot-alive: overlay mostrado\")\n"
+              "        return\n"
+              "      }\n"
+              "      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))\n"
+              "    }\n"
+              "    NSLog(\"[Black Gym] boot-alive: sin UIWindowScene tras 5s, no se pudo mostrar\")\n"
+              "  }\n"
+              "\n"
+          )
+
+          patch_func = (
+              "  static func install() {\n"
+              "    NSSetUncaughtExceptionHandler { exception in\n"
+              "      let stack = exception.callStackSymbols.joined(separator: \"\\n\")\n"
+              "      let report = \"[Black Gym] Uncaught NSException\\nname: \\(exception.name.rawValue)\\nreason: \\(exception.reason ?? \"(none)\")\\nstack:\\n\\(stack)\"\n"
+              "      CrashDiagnostics.handle(report)\n"
+              "    }\n"
+              "  }\n"
+              "\n"
+              + new_func +
+              "  /// Muestra el reporte del último crash (si existe) ANTES de arrancar React"
+          )
+          content = content.replace(anchor_func, patch_func)
+
+          anchor_call = (
+              "    CrashDiagnostics.install()\n"
+              "\n"
+              "    let delegate = ReactNativeDelegate()"
+          )
+          count_call = content.count(anchor_call)
+          if count_call != 1:
+              print(f"::error::AppDelegate.swift anchor_call not found exactly once (found {count_call}) — file shape changed (expected the presentPendingReport() call to already be removed by the previous step), aborting.")
+              raise SystemExit(1)
+
+          patch_call = (
+              "    CrashDiagnostics.install()\n"
+              "    CrashDiagnostics.showBootAliveOverlay()\n"
+              "\n"
+              "    let delegate = ReactNativeDelegate()"
+          )
+          content = content.replace(anchor_call, patch_call)
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("AppDelegate.swift patched: added a temporary native 'boot-alive' overlay shown immediately at launch,")
+          print("independent of React/JS. Reuses the same alert+1 window-level trick already proven to escape the")
+          print("launch-screen snapshot. If this text shows up on screen, native rendering works fine and the black")
+          print("screen is confirmed to be a JS/React-side hang. If it still doesn't show, the problem is earlier than")
+          print("that. This overlay is diagnostic-only and should be removed once the real hang is found and fixed.")
+          PYEOF
+
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
         working-directory: expo/ios
         run: |
