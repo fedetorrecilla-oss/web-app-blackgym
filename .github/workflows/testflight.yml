@@ -692,7 +692,7 @@ jobs:
               "        vc.view.backgroundColor = UIColor(red: 0.016, green: 0.016, blue: 0.016, alpha: 1)\n"
               "\n"
               "        let label = UILabel()\n"
-              "        label.text = \"Black Gym\\n\\nDiagnóstico nativo: el arranque llegó hasta acá.\\n\\n(Este cartel es temporal, no es la app.)\"\n"
+              "        label.text = \"Black Gym\\n\\nDiagnóstico nativo: el arranque llegó hasta acá.\\n\\nEste cartel se oculta solo en 6 segundos:\\nmirá qué queda atrás.\"\n"
               "        label.numberOfLines = 0\n"
               "        label.textAlignment = .center\n"
               "        label.textColor = UIColor(red: 0.776, green: 0.945, blue: 0.208, alpha: 1)\n"
@@ -715,6 +715,14 @@ jobs:
               "\n"
               "        bootAliveWindow = window\n"
               "        NSLog(\"[Black Gym] boot-alive: overlay mostrado\")\n"
+              "\n"
+              "        // Se oculta solo: si React SÍ llega a montar algo detrás, esto lo deja\n"
+              "        // ver. Si sigue todo negro después, React nunca llegó a pintar nada.\n"
+              "        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {\n"
+              "          window.isHidden = true\n"
+              "          bootAliveWindow = nil\n"
+              "          NSLog(\"[Black Gym] boot-alive: overlay ocultado tras 6s\")\n"
+              "        }\n"
               "        return\n"
               "      }\n"
               "      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))\n"
@@ -760,10 +768,12 @@ jobs:
               f.write(content)
 
           print("AppDelegate.swift patched: added a temporary native 'boot-alive' overlay shown immediately at launch,")
-          print("independent of React/JS. Reuses the same alert+1 window-level trick already proven to escape the")
-          print("launch-screen snapshot. If this text shows up on screen, native rendering works fine and the black")
-          print("screen is confirmed to be a JS/React-side hang. If it still doesn't show, the problem is earlier than")
-          print("that. This overlay is diagnostic-only and should be removed once the real hang is found and fixed.")
+          print("independent of React/JS, auto-hiding itself after 6s. Reuses the same alert+1 window-level trick")
+          print("already proven to escape the launch-screen snapshot. If this text shows up on screen, native")
+          print("rendering works fine. What matters most is what's visible AFTER it hides itself: if React mounted")
+          print("anything behind it (even our JS boot-trace overlay), it'll show once these 6s pass. If it's still")
+          print("solid black afterward, React/JS never painted anything at all. This overlay is diagnostic-only and")
+          print("should be removed once the real hang is found and fixed.")
           PYEOF
 
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
