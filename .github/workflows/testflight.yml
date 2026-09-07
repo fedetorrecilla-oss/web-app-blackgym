@@ -14,12 +14,79 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: "Add on-screen boot-trace diagnostic overlay (create lib/bootTrace.ts)"
+        run: |
+          python3 - <<'PYEOF'
+          import os
+
+          path = "lib/bootTrace.ts"
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+
+          content = (
+              "// Black Gym boot-trace: a tiny, always-on checkpoint log so a black-screen\n"
+              "// hang can be diagnosed from a screenshot alone, without a crash log or a\n"
+              "// connected Mac. Call markCheckpoint(...) at each key startup milestone;\n"
+              "// BootTraceOverlay (in app/_layout.tsx) renders the list live on screen.\n"
+              "type Checkpoint = { label: string; t: number };\n"
+              "\n"
+              "const trace: Checkpoint[] = [];\n"
+              "let listeners: Array<() => void> = [];\n"
+              "\n"
+              "export function markCheckpoint(label: string): void {\n"
+              "  trace.push({ label, t: Date.now() });\n"
+              "  listeners.forEach((listener) => {\n"
+              "    try {\n"
+              "      listener();\n"
+              "    } catch {\n"
+              "      // no-op: a broken listener must never break the app it's diagnosing.\n"
+              "    }\n"
+              "  });\n"
+              "}\n"
+              "\n"
+              "export function getTrace(): Checkpoint[] {\n"
+              "  return trace;\n"
+              "}\n"
+              "\n"
+              "export function subscribeTrace(listener: () => void): () => void {\n"
+              "  listeners.push(listener);\n"
+              "  return () => {\n"
+              "    listeners = listeners.filter((l) => l !== listener);\n"
+              "  };\n"
+              "}\n"
+          )
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("Created lib/bootTrace.ts (checkpoint log used by the on-screen diagnostic overlay).")
+          PYEOF
+
       - name: "Fix silent black-screen hang: never let a stuck native call block first render"
         run: |
           python3 - <<'PYEOF'
           path = "context/GymContext.tsx"
           with open(path) as f:
               content = f.read()
+
+          anchor0 = (
+              "import { MAX_CAPACITY, STORAGE_KEYS, DEFAULT_PRICING } from '@/constants/gym';\n"
+              "import { trpc } from '@/lib/trpc';\n"
+              "\n"
+              "function generateId(): string {"
+          )
+          count0 = content.count(anchor0)
+          if count0 != 1:
+              print(f"::error::GymContext.tsx anchor0 (import block) not found exactly once (found {count0}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch0 = (
+              "import { MAX_CAPACITY, STORAGE_KEYS, DEFAULT_PRICING } from '@/constants/gym';\n"
+              "import { trpc } from '@/lib/trpc';\n"
+              "import { markCheckpoint } from '@/lib/bootTrace';\n"
+              "\n"
+              "function generateId(): string {"
+          )
+          content = content.replace(anchor0, patch0)
 
           anchor1 = (
               "function generateId(): string {\n"
@@ -57,6 +124,8 @@ jobs:
           content = content.replace(anchor1, patch1)
 
           anchor2 = (
+              "    queryFn: async () => {\n"
+              "      console.log('[GymContext] Loading local data from AsyncStorage...');\n"
               "      const [storedStudents, storedBookings, storedBlocked, storedPayments, storedPricing, storedUser] =\n"
               "        await Promise.all([\n"
               "          AsyncStorage.getItem(STORAGE_KEYS.students),\n"
@@ -73,6 +142,9 @@ jobs:
               raise SystemExit(1)
 
           patch2 = (
+              "    queryFn: async () => {\n"
+              "      markCheckpoint('GymContext:localData:start');\n"
+              "      console.log('[GymContext] Loading local data from AsyncStorage...');\n"
               "      const [storedStudents, storedBookings, storedBlocked, storedPayments, storedPricing, storedUser] =\n"
               "        await Promise.all([\n"
               "          safeGetItem(STORAGE_KEYS.students),\n"
@@ -85,15 +157,65 @@ jobs:
           )
           content = content.replace(anchor2, patch2)
 
+          anchor3 = (
+              "      console.log('[GymContext] Local data loaded:', {\n"
+              "        students: data.students.length,\n"
+              "        bookings: data.bookings.length,\n"
+              "        payments: data.payments.length,\n"
+              "      });\n"
+              "\n"
+              "      return data;\n"
+              "    },\n"
+              "    staleTime: Infinity,"
+          )
+          count3 = content.count(anchor3)
+          if count3 != 1:
+              print(f"::error::GymContext.tsx anchor3 (return data) not found exactly once (found {count3}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch3 = (
+              "      console.log('[GymContext] Local data loaded:', {\n"
+              "        students: data.students.length,\n"
+              "        bookings: data.bookings.length,\n"
+              "        payments: data.payments.length,\n"
+              "      });\n"
+              "\n"
+              "      markCheckpoint('GymContext:localData:done');\n"
+              "      return data;\n"
+              "    },\n"
+              "    staleTime: Infinity,"
+          )
+          content = content.replace(anchor3, patch3)
+
           with open(path, "w") as f:
               f.write(content)
-          print("GymContext.tsx patched: local-storage reads now time out after 4s instead of hanging forever.")
+          print("GymContext.tsx patched: local-storage reads now time out after 4s, and boot checkpoints added.")
           PYEOF
 
           python3 - <<'PYEOF'
           path = "context/RutinaContext.tsx"
           with open(path) as f:
               content = f.read()
+
+          anchor0 = (
+              "from '@/constants/rutina-templates';\n"
+              "import { trpc } from '@/lib/trpc';\n"
+              "\n"
+              "function generateId(): string {"
+          )
+          count0 = content.count(anchor0)
+          if count0 != 1:
+              print(f"::error::RutinaContext.tsx anchor0 (import block) not found exactly once (found {count0}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch0 = (
+              "from '@/constants/rutina-templates';\n"
+              "import { trpc } from '@/lib/trpc';\n"
+              "import { markCheckpoint } from '@/lib/bootTrace';\n"
+              "\n"
+              "function generateId(): string {"
+          )
+          content = content.replace(anchor0, patch0)
 
           anchor1 = (
               "const KEYS = {\n"
@@ -140,6 +262,8 @@ jobs:
           content = content.replace(anchor1, patch1)
 
           anchor2 = (
+              "    queryFn: async () => {\n"
+              "      console.log('[RutinaContext] Loading local data...');\n"
               "      const [sExercises, sTemplates, sDays, sDayExercises, sWorkouts, sWorkoutSets, sSeeded] =\n"
               "        await Promise.all([\n"
               "          AsyncStorage.getItem(KEYS.exercises),\n"
@@ -157,6 +281,9 @@ jobs:
               raise SystemExit(1)
 
           patch2 = (
+              "    queryFn: async () => {\n"
+              "      markCheckpoint('RutinaContext:localData:start');\n"
+              "      console.log('[RutinaContext] Loading local data...');\n"
               "      const [sExercises, sTemplates, sDays, sDayExercises, sWorkouts, sWorkoutSets, sSeeded] =\n"
               "        await Promise.all([\n"
               "          safeGetItem(KEYS.exercises),\n"
@@ -170,9 +297,235 @@ jobs:
           )
           content = content.replace(anchor2, patch2)
 
+          anchor3 = (
+              "      return {\n"
+              "        exercises: parsedExercises,\n"
+              "        templates: parsedTemplates,\n"
+              "        days: parsedDays,\n"
+              "        dayExercises: parsedDayExercises,\n"
+              "        workouts: parsedWorkouts,\n"
+              "        workoutSets: parsedWorkoutSets,\n"
+              "      };\n"
+              "    },\n"
+              "    staleTime: Infinity,"
+          )
+          count3 = content.count(anchor3)
+          if count3 != 1:
+              print(f"::error::RutinaContext.tsx anchor3 (return block) not found exactly once (found {count3}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch3 = (
+              "      markCheckpoint('RutinaContext:localData:done');\n"
+              "      return {\n"
+              "        exercises: parsedExercises,\n"
+              "        templates: parsedTemplates,\n"
+              "        days: parsedDays,\n"
+              "        dayExercises: parsedDayExercises,\n"
+              "        workouts: parsedWorkouts,\n"
+              "        workoutSets: parsedWorkoutSets,\n"
+              "      };\n"
+              "    },\n"
+              "    staleTime: Infinity,"
+          )
+          content = content.replace(anchor3, patch3)
+
           with open(path, "w") as f:
               f.write(content)
-          print("RutinaContext.tsx patched: local-storage reads now time out after 4s instead of hanging forever.")
+          print("RutinaContext.tsx patched: local-storage reads now time out after 4s, and boot checkpoints added.")
+          PYEOF
+
+      - name: "Add boot-trace overlay to app/_layout.tsx (always visible, even if something inside hangs)"
+        run: |
+          python3 - <<'PYEOF'
+          path = "app/_layout.tsx"
+          with open(path) as f:
+              content = f.read()
+
+          anchor0 = (
+              "import { trpc, trpcClient } from '@/lib/trpc';\n"
+              "\n"
+              "const queryClient = new QueryClient();"
+          )
+          count0 = content.count(anchor0)
+          if count0 != 1:
+              print(f"::error::_layout.tsx anchor0 (import + queryClient) not found exactly once (found {count0}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch0 = (
+              "import { trpc, trpcClient } from '@/lib/trpc';\n"
+              "import { markCheckpoint, subscribeTrace, getTrace } from '@/lib/bootTrace';\n"
+              "\n"
+              "markCheckpoint('module:_layout evaluated');\n"
+              "\n"
+              "const queryClient = new QueryClient();"
+          )
+          content = content.replace(anchor0, patch0)
+
+          anchor1 = "function RootLayoutNav() {"
+          count1 = content.count(anchor1)
+          if count1 != 1:
+              print(f"::error::_layout.tsx anchor1 (RootLayoutNav) not found exactly once (found {count1}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          overlay_block = (
+              "// Black Gym diagnostic overlay: always-visible, tiny text trail of startup\n"
+              "// checkpoints so a black-screen hang can be diagnosed from a screenshot\n"
+              "// alone. Rendered as a sibling of the whole app tree so it still shows up\n"
+              "// even if something deeper (a Provider, a query) never finishes.\n"
+              "function BootTraceOverlay() {\n"
+              "  const [, forceUpdate] = useState(0);\n"
+              "\n"
+              "  useEffect(() => {\n"
+              "    const unsubscribe = subscribeTrace(() => forceUpdate((n) => n + 1));\n"
+              "    return unsubscribe;\n"
+              "  }, []);\n"
+              "\n"
+              "  const entries = getTrace();\n"
+              "\n"
+              "  return (\n"
+              "    <View pointerEvents=\"none\" style={overlayStyles.container}>\n"
+              "      <Text style={overlayStyles.title}>Black Gym - diagnostico de arranque</Text>\n"
+              "      {entries.map((entry, i) => (\n"
+              "        <Text key={i} style={overlayStyles.line}>\n"
+              "          {i + 1}. {entry.label}\n"
+              "        </Text>\n"
+              "      ))}\n"
+              "    </View>\n"
+              "  );\n"
+              "}\n"
+              "\n"
+              "const overlayStyles = StyleSheet.create({\n"
+              "  container: {\n"
+              "    position: 'absolute',\n"
+              "    top: 50,\n"
+              "    left: 8,\n"
+              "    right: 8,\n"
+              "    backgroundColor: 'rgba(0,0,0,0.85)',\n"
+              "    borderRadius: 8,\n"
+              "    padding: 8,\n"
+              "    zIndex: 9999,\n"
+              "  },\n"
+              "  title: {\n"
+              "    color: '#C6F135',\n"
+              "    fontSize: 11,\n"
+              "    fontWeight: '700' as const,\n"
+              "    marginBottom: 4,\n"
+              "  },\n"
+              "  line: {\n"
+              "    color: '#FFFFFF',\n"
+              "    fontSize: 10,\n"
+              "    fontFamily: 'Menlo',\n"
+              "  },\n"
+              "});\n"
+              "\n"
+              "function RootLayoutNav() {"
+          )
+          content = content.replace(anchor1, overlay_block)
+
+          anchor2 = (
+              "export default function RootLayout() {\n"
+              "  useEffect(() => {\n"
+              "    // Deferred to mount: module-scope native calls crash release builds on\n"
+              "    // iOS 26 before the error boundary exists (TurboModule void-method bug).\n"
+              "    SplashScreen.preventAutoHideAsync().catch(() => {});\n"
+              "    SplashScreen.hideAsync().catch(() => {});\n"
+              "  }, []);\n"
+              "\n"
+              "  return (\n"
+              "    <trpc.Provider client={trpcClient} queryClient={queryClient}>\n"
+              "      <QueryClientProvider client={queryClient}>\n"
+              "        <GestureHandlerRootView style={{ flex: 1 }}>\n"
+              "          <GymProvider>\n"
+              "            <RutinaProvider>\n"
+              "              <RootLayoutNav />\n"
+              "            </RutinaProvider>\n"
+              "          </GymProvider>\n"
+              "        </GestureHandlerRootView>\n"
+              "      </QueryClientProvider>\n"
+              "    </trpc.Provider>\n"
+              "  );\n"
+              "}"
+          )
+          count2 = content.count(anchor2)
+          if count2 != 1:
+              print(f"::error::_layout.tsx anchor2 (RootLayout body) not found exactly once (found {count2}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch2 = (
+              "export default function RootLayout() {\n"
+              "  markCheckpoint('RootLayout:render');\n"
+              "\n"
+              "  useEffect(() => {\n"
+              "    // Deferred to mount: module-scope native calls crash release builds on\n"
+              "    // iOS 26 before the error boundary exists (TurboModule void-method bug).\n"
+              "    SplashScreen.preventAutoHideAsync().catch(() => {});\n"
+              "    SplashScreen.hideAsync().catch(() => {});\n"
+              "  }, []);\n"
+              "\n"
+              "  return (\n"
+              "    <>\n"
+              "      <trpc.Provider client={trpcClient} queryClient={queryClient}>\n"
+              "        <QueryClientProvider client={queryClient}>\n"
+              "          <GestureHandlerRootView style={{ flex: 1 }}>\n"
+              "            <GymProvider>\n"
+              "              <RutinaProvider>\n"
+              "                <RootLayoutNav />\n"
+              "              </RutinaProvider>\n"
+              "            </GymProvider>\n"
+              "          </GestureHandlerRootView>\n"
+              "        </QueryClientProvider>\n"
+              "      </trpc.Provider>\n"
+              "      <BootTraceOverlay />\n"
+              "    </>\n"
+              "  );\n"
+              "}"
+          )
+          content = content.replace(anchor2, patch2)
+
+          with open(path, "w") as f:
+              f.write(content)
+          print("_layout.tsx patched: added BootTraceOverlay, rendered as a sibling of the whole app tree.")
+          PYEOF
+
+      - name: "Add boot checkpoints to the login screen (app/index.tsx)"
+        run: |
+          python3 - <<'PYEOF'
+          path = "app/index.tsx"
+          with open(path) as f:
+              content = f.read()
+
+          anchor0 = (
+              "import { ADMIN_PASSWORD } from '@/constants/gym';\n"
+              "import { UserRole } from '@/types/gym';\n"
+              "\n"
+              "export default function LoginScreen() {\n"
+              "  const router = useRouter();\n"
+              "  const { currentUser, isLoading, login, loginPending } = useGym();\n"
+          )
+          count0 = content.count(anchor0)
+          if count0 != 1:
+              print(f"::error::index.tsx anchor0 not found exactly once (found {count0}) — file shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch0 = (
+              "import { ADMIN_PASSWORD } from '@/constants/gym';\n"
+              "import { UserRole } from '@/types/gym';\n"
+              "import { markCheckpoint } from '@/lib/bootTrace';\n"
+              "\n"
+              "export default function LoginScreen() {\n"
+              "  markCheckpoint('LoginScreen:render');\n"
+              "  const router = useRouter();\n"
+              "  const { currentUser, isLoading, login, loginPending } = useGym();\n"
+              "\n"
+              "  useEffect(() => {\n"
+              "    markCheckpoint(`LoginScreen:isLoading=${isLoading}`);\n"
+              "  }, [isLoading]);\n"
+          )
+          content = content.replace(anchor0, patch0)
+
+          with open(path, "w") as f:
+              f.write(content)
+          print("index.tsx patched: LoginScreen now marks render + isLoading-transition boot checkpoints.")
           PYEOF
 
       - name: Select Xcode
