@@ -630,7 +630,7 @@ jobs:
           print("harmless uncaught-exception logger) is kept; only the blocking upload-before-RN-starts call is removed.")
           PYEOF
 
-      - name: "Add native boot-alive overlay (diagnostic: does ANY custom UI render before JS/React even starts?)"
+      - name: "Add native boot-alive overlay + RN bridge lifecycle trace (diagnostic: how far does JS/React actually get?)"
         working-directory: expo/ios
         run: |
           python3 - <<'PYEOF'
@@ -651,6 +651,9 @@ jobs:
               "  private static var pendingReportWindow: UIWindow?\n"
               "  private static var shouldContinueLaunch = false\n"
               "  private static var bootAliveWindow: UIWindow?\n"
+              "  private static var bootAliveLabel: UILabel?\n"
+              "  private static var nativeTrace: [String] = []\n"
+              "  private static let bootStart = Date()\n"
           )
           content = content.replace(anchor_var, patch_var)
 
@@ -671,13 +674,61 @@ jobs:
               raise SystemExit(1)
 
           new_func = (
+              "  /// Registra un checkpoint nativo (con timestamp relativo al arranque) y,\n"
+              "  /// si el cartel de diagnóstico ya está en pantalla, lo actualiza en vivo.\n"
+              "  /// Pensado para llamarse desde cualquier hilo.\n"
+              "  static func recordNativeCheckpoint(_ label: String) {\n"
+              "    let elapsed = String(format: \"%.2f\", Date().timeIntervalSince(bootStart))\n"
+              "    let line = \"[\\(elapsed)s] \\(label)\"\n"
+              "    NSLog(\"[Black Gym] boot-trace: %@\", line)\n"
+              "    DispatchQueue.main.async {\n"
+              "      nativeTrace.append(line)\n"
+              "      bootAliveLabel?.text = CrashDiagnostics.renderTraceText()\n"
+              "    }\n"
+              "  }\n"
+              "\n"
+              "  private static func renderTraceText() -> String {\n"
+              "    var text = \"Black Gym — diagnóstico nativo\\n(no depende de React/JS)\\n\\n\"\n"
+              "    if nativeTrace.isEmpty {\n"
+              "      text += \"(sin checkpoints todavía)\"\n"
+              "    } else {\n"
+              "      text += nativeTrace.joined(separator: \"\\n\")\n"
+              "    }\n"
+              "    return text\n"
+              "  }\n"
+              "\n"
+              "  /// Se engancha a las notificaciones que posta el bridge de RN (si existen\n"
+              "  /// en esta arquitectura/versión) para saber, desde afuera de JS, si el\n"
+              "  /// bundle llegó a cargar y si React llegó a mostrar contenido. Usamos\n"
+              "  /// nombres de notificación como string literal a propósito: así compila\n"
+              "  /// sin importar si la constante existe en este modo (bridge/bridgeless).\n"
+              "  /// Si nunca se ve ningún checkpoint de estos, esa ausencia también es\n"
+              "  /// información: dice que esta app corre en un modo donde esas notis no\n"
+              "  /// se postean, o que el bridge nunca llega a esas etapas.\n"
+              "  static func installBridgeObservers() {\n"
+              "    let names = [\n"
+              "      \"RCTJavaScriptWillStartLoadingNotification\",\n"
+              "      \"RCTJavaScriptDidLoadNotification\",\n"
+              "      \"RCTJavaScriptDidFailToLoadNotification\",\n"
+              "      \"RCTContentDidAppearNotification\",\n"
+              "    ]\n"
+              "    for name in names {\n"
+              "      NotificationCenter.default.addObserver(\n"
+              "        forName: NSNotification.Name(name), object: nil, queue: .main\n"
+              "      ) { _ in\n"
+              "        CrashDiagnostics.recordNativeCheckpoint(\"notif: \\(name)\")\n"
+              "      }\n"
+              "    }\n"
+              "  }\n"
+              "\n"
               "  /// Diagnóstico temporal: muestra un cartel nativo (fuera de React) apenas\n"
               "  /// arranca la app, con el mismo truco de ventana a windowLevel .alert+1 que\n"
               "  /// ya sabemos que descarta el snapshot del launch screen (lo usa\n"
               "  /// presentPendingReport). No depende de que el bridge de RN ni JS lleguen a\n"
-              "  /// correr, así que confirma si ALGO puede pintar en pantalla antes de\n"
-              "  /// sospechar de React/JS. A diferencia de presentPendingReport, no bloquea\n"
-              "  /// el launch esperando ninguna acción del usuario.\n"
+              "  /// correr — confirma si ALGO puede pintar en pantalla — y además se va\n"
+              "  /// actualizando en vivo con cada checkpoint nativo que llegue (ver\n"
+              "  /// recordNativeCheckpoint / installBridgeObservers). A diferencia de\n"
+              "  /// presentPendingReport, no bloquea el launch esperando ninguna acción.\n"
               "  static func showBootAliveOverlay() {\n"
               "    NSLog(\"[Black Gym] boot-alive: esperando UIWindowScene…\")\n"
               "    let sceneDeadline = Date().addingTimeInterval(5)\n"
@@ -692,19 +743,18 @@ jobs:
               "        vc.view.backgroundColor = UIColor(red: 0.016, green: 0.016, blue: 0.016, alpha: 1)\n"
               "\n"
               "        let label = UILabel()\n"
-              "        label.text = \"Black Gym\\n\\nDiagnóstico nativo: el arranque llegó hasta acá.\\n\\nEste cartel se oculta solo en 6 segundos:\\nmirá qué queda atrás.\"\n"
+              "        label.text = CrashDiagnostics.renderTraceText()\n"
               "        label.numberOfLines = 0\n"
-              "        label.textAlignment = .center\n"
+              "        label.textAlignment = .left\n"
               "        label.textColor = UIColor(red: 0.776, green: 0.945, blue: 0.208, alpha: 1)\n"
-              "        label.font = .systemFont(ofSize: 17, weight: .semibold)\n"
+              "        label.font = .monospacedSystemFont(ofSize: 13, weight: .medium)\n"
               "        label.translatesAutoresizingMaskIntoConstraints = false\n"
               "        vc.view.addSubview(label)\n"
               "\n"
               "        NSLayoutConstraint.activate([\n"
-              "          label.centerXAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.centerXAnchor),\n"
-              "          label.centerYAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.centerYAnchor),\n"
-              "          label.leadingAnchor.constraint(greaterThanOrEqualTo: vc.view.safeAreaLayoutGuide.leadingAnchor, constant: 24),\n"
-              "          label.trailingAnchor.constraint(lessThanOrEqualTo: vc.view.safeAreaLayoutGuide.trailingAnchor, constant: -24),\n"
+              "          label.topAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.topAnchor, constant: 24),\n"
+              "          label.leadingAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.leadingAnchor, constant: 16),\n"
+              "          label.trailingAnchor.constraint(equalTo: vc.view.safeAreaLayoutGuide.trailingAnchor, constant: -16),\n"
               "        ])\n"
               "\n"
               "        window.rootViewController = vc\n"
@@ -714,15 +764,8 @@ jobs:
               "        window.rootViewController?.view.layoutIfNeeded()\n"
               "\n"
               "        bootAliveWindow = window\n"
+              "        bootAliveLabel = label\n"
               "        NSLog(\"[Black Gym] boot-alive: overlay mostrado\")\n"
-              "\n"
-              "        // Se oculta solo: si React SÍ llega a montar algo detrás, esto lo deja\n"
-              "        // ver. Si sigue todo negro después, React nunca llegó a pintar nada.\n"
-              "        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {\n"
-              "          window.isHidden = true\n"
-              "          bootAliveWindow = nil\n"
-              "          NSLog(\"[Black Gym] boot-alive: overlay ocultado tras 6s\")\n"
-              "        }\n"
               "        return\n"
               "      }\n"
               "      RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))\n"
@@ -757,6 +800,8 @@ jobs:
               raise SystemExit(1)
 
           patch_call = (
+              "    CrashDiagnostics.installBridgeObservers()\n"
+              "    CrashDiagnostics.recordNativeCheckpoint(\"didFinishLaunchingWithOptions: start\")\n"
               "    CrashDiagnostics.install()\n"
               "    CrashDiagnostics.showBootAliveOverlay()\n"
               "\n"
@@ -764,16 +809,44 @@ jobs:
           )
           content = content.replace(anchor_call, patch_call)
 
+          anchor_after_start = (
+              "#if os(iOS) || os(tvOS)\n"
+              "    window = UIWindow(frame: UIScreen.main.bounds)\n"
+              "    factory.startReactNative(\n"
+              "      withModuleName: \"main\",\n"
+              "      in: window,\n"
+              "      launchOptions: launchOptions)\n"
+              "#endif"
+          )
+          count_after_start = content.count(anchor_after_start)
+          if count_after_start != 1:
+              print(f"::error::AppDelegate.swift anchor_after_start not found exactly once (found {count_after_start}) — aborting.")
+              raise SystemExit(1)
+
+          patch_after_start = (
+              "#if os(iOS) || os(tvOS)\n"
+              "    window = UIWindow(frame: UIScreen.main.bounds)\n"
+              "    factory.startReactNative(\n"
+              "      withModuleName: \"main\",\n"
+              "      in: window,\n"
+              "      launchOptions: launchOptions)\n"
+              "    CrashDiagnostics.recordNativeCheckpoint(\"startReactNative() returned\")\n"
+              "#endif"
+          )
+          content = content.replace(anchor_after_start, patch_after_start)
+
           with open(path, "w") as f:
               f.write(content)
 
-          print("AppDelegate.swift patched: added a temporary native 'boot-alive' overlay shown immediately at launch,")
-          print("independent of React/JS, auto-hiding itself after 6s. Reuses the same alert+1 window-level trick")
-          print("already proven to escape the launch-screen snapshot. If this text shows up on screen, native")
-          print("rendering works fine. What matters most is what's visible AFTER it hides itself: if React mounted")
-          print("anything behind it (even our JS boot-trace overlay), it'll show once these 6s pass. If it's still")
-          print("solid black afterward, React/JS never painted anything at all. This overlay is diagnostic-only and")
-          print("should be removed once the real hang is found and fixed.")
+          print("AppDelegate.swift patched: the native boot-alive overlay now stays on screen (no longer")
+          print("auto-hides) and updates itself live with a timestamped trace of native-level checkpoints:")
+          print("didFinishLaunchingWithOptions start, startReactNative() returning, and (best-effort, via")
+          print("string-literal notification names so this compiles regardless of bridge/bridgeless mode)")
+          print("RCTJavaScriptWillStartLoadingNotification / RCTJavaScriptDidLoadNotification /")
+          print("RCTJavaScriptDidFailToLoadNotification / RCTContentDidAppearNotification. Whatever shows in")
+          print("the screenshot after ~15-20s tells us exactly how far native/bridge/JS execution got before")
+          print("the app went black. This overlay is diagnostic-only and should be removed once the real hang")
+          print("is found and fixed.")
           PYEOF
 
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
