@@ -721,6 +721,32 @@ jobs:
               "    }\n"
               "  }\n"
               "\n"
+              "  /// Inspecciona la ventana real de la app (NO el cartel de diagnóstico) a los\n"
+              "  /// 1, 3, 6, 10 y 15s después de startReactNative(), y registra un resumen de\n"
+              "  /// su jerarquía de vistas como checkpoint. Esto es agnóstico de bridge vs\n"
+              "  /// bridgeless y de qué notificaciones existan: solo mira UIKit puro. Si\n"
+              "  /// subviews se queda en 0 para siempre, React nunca montó nada ahí.\n"
+              "  static func watchAppWindow(_ window: UIWindow?) {\n"
+              "    for delay in [1.0, 3.0, 6.0, 10.0, 15.0] {\n"
+              "      DispatchQueue.main.asyncAfter(deadline: .now() + delay) {\n"
+              "        recordNativeCheckpoint(\"app window @+\\(Int(delay))s: \\(describeAppWindow(window))\")\n"
+              "      }\n"
+              "    }\n"
+              "  }\n"
+              "\n"
+              "  private static func describeAppWindow(_ window: UIWindow?) -> String {\n"
+              "    guard let window = window else { return \"window=nil\" }\n"
+              "    let rootVC = window.rootViewController\n"
+              "    let rootVCName = rootVC.map { String(describing: type(of: $0)) } ?? \"nil\"\n"
+              "    let rootView = rootVC?.view\n"
+              "    let rootViewName = rootView.map { String(describing: type(of: $0)) } ?? \"nil\"\n"
+              "    let subviews = rootView?.subviews ?? []\n"
+              "    let childNames = subviews.prefix(4).map { String(describing: type(of: $0)) }.joined(separator: \", \")\n"
+              "    let winSize = window.frame.size\n"
+              "    let viewSize = rootView?.frame.size ?? .zero\n"
+              "    return \"key=\\(window.isKeyWindow) hidden=\\(window.isHidden) winSize=\\(winSize) rootVC=\\(rootVCName) rootView=\\(rootViewName) viewSize=\\(viewSize) subviews=\\(subviews.count) [\\(childNames)]\"\n"
+              "  }\n"
+              "\n"
               "  /// Diagnóstico temporal: muestra un cartel nativo (fuera de React) apenas\n"
               "  /// arranca la app, con el mismo truco de ventana a windowLevel .alert+1 que\n"
               "  /// ya sabemos que descarta el snapshot del launch screen (lo usa\n"
@@ -831,6 +857,7 @@ jobs:
               "      in: window,\n"
               "      launchOptions: launchOptions)\n"
               "    CrashDiagnostics.recordNativeCheckpoint(\"startReactNative() returned\")\n"
+              "    CrashDiagnostics.watchAppWindow(window)\n"
               "#endif"
           )
           content = content.replace(anchor_after_start, patch_after_start)
@@ -838,15 +865,15 @@ jobs:
           with open(path, "w") as f:
               f.write(content)
 
-          print("AppDelegate.swift patched: the native boot-alive overlay now stays on screen (no longer")
-          print("auto-hides) and updates itself live with a timestamped trace of native-level checkpoints:")
-          print("didFinishLaunchingWithOptions start, startReactNative() returning, and (best-effort, via")
-          print("string-literal notification names so this compiles regardless of bridge/bridgeless mode)")
-          print("RCTJavaScriptWillStartLoadingNotification / RCTJavaScriptDidLoadNotification /")
-          print("RCTJavaScriptDidFailToLoadNotification / RCTContentDidAppearNotification. Whatever shows in")
-          print("the screenshot after ~15-20s tells us exactly how far native/bridge/JS execution got before")
-          print("the app went black. This overlay is diagnostic-only and should be removed once the real hang")
-          print("is found and fixed.")
+          print("AppDelegate.swift patched: the native boot-alive overlay stays on screen and updates itself")
+          print("live with: didFinishLaunchingWithOptions start, startReactNative() returning, best-effort RN")
+          print("bridge notifications (may never fire under bridgeless New Architecture — that absence alone")
+          print("is not conclusive), AND — the new, most robust check — a plain UIKit inspection of the REAL")
+          print("app window's view hierarchy at +1s/+3s/+6s/+10s/+15s (rootViewController class, root view")
+          print("class, size, subview count and names). This last one is agnostic to bridge vs bridgeless and")
+          print("to RN-internal API names, so it should tell us conclusively whether React ever mounts ANY")
+          print("view into the real app window, no matter what mode this build runs in. This overlay is")
+          print("diagnostic-only and should be removed once the real hang is found and fixed.")
           PYEOF
 
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
