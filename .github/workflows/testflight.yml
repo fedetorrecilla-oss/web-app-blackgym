@@ -722,14 +722,15 @@ jobs:
               "  }\n"
               "\n"
               "  /// Inspecciona la ventana real de la app (NO el cartel de diagnóstico) a los\n"
-              "  /// 1, 3, 6, 10 y 15s después de startReactNative(), y registra un resumen de\n"
-              "  /// su jerarquía de vistas como checkpoint. Esto es agnóstico de bridge vs\n"
-              "  /// bridgeless y de qué notificaciones existan: solo mira UIKit puro. Si\n"
-              "  /// subviews se queda en 0 para siempre, React nunca montó nada ahí.\n"
+              "  /// 2 y 15s después de startReactNative(), bajando varios niveles dentro del\n"
+              "  /// árbol de vistas (no solo el primer nivel), y lo registra como checkpoint.\n"
+              "  /// Esto es agnóstico de bridge vs bridgeless y de nombres internos de RN:\n"
+              "  /// solo mira UIKit puro. Si el árbol nunca crece más allá del contenedor de\n"
+              "  /// Fabric (RCTSurfaceView), React nunca montó contenido real ahí adentro.\n"
               "  static func watchAppWindow(_ window: UIWindow?) {\n"
-              "    for delay in [1.0, 3.0, 6.0, 10.0, 15.0] {\n"
+              "    for delay in [2.0, 15.0] {\n"
               "      DispatchQueue.main.asyncAfter(deadline: .now() + delay) {\n"
-              "        recordNativeCheckpoint(\"app window @+\\(Int(delay))s: \\(describeAppWindow(window))\")\n"
+              "        recordNativeCheckpoint(\"app window @+\\(Int(delay))s:\\n\\(describeAppWindow(window))\")\n"
               "      }\n"
               "    }\n"
               "  }\n"
@@ -738,13 +739,28 @@ jobs:
               "    guard let window = window else { return \"window=nil\" }\n"
               "    let rootVC = window.rootViewController\n"
               "    let rootVCName = rootVC.map { String(describing: type(of: $0)) } ?? \"nil\"\n"
-              "    let rootView = rootVC?.view\n"
-              "    let rootViewName = rootView.map { String(describing: type(of: $0)) } ?? \"nil\"\n"
-              "    let subviews = rootView?.subviews ?? []\n"
-              "    let childNames = subviews.prefix(4).map { String(describing: type(of: $0)) }.joined(separator: \", \")\n"
-              "    let winSize = window.frame.size\n"
-              "    let viewSize = rootView?.frame.size ?? .zero\n"
-              "    return \"key=\\(window.isKeyWindow) hidden=\\(window.isHidden) winSize=\\(winSize) rootVC=\\(rootVCName) rootView=\\(rootViewName) viewSize=\\(viewSize) subviews=\\(subviews.count) [\\(childNames)]\"\n"
+              "    let header = \"key=\\(window.isKeyWindow) hidden=\\(window.isHidden) winSize=\\(window.frame.size) rootVC=\\(rootVCName)\"\n"
+              "    let tree = describeViewTree(rootVC?.view, depth: 0, maxDepth: 5)\n"
+              "    return header + \"\\n\" + tree\n"
+              "  }\n"
+              "\n"
+              "  /// Recorre el árbol de vistas real (UIKit puro) y lo devuelve como texto\n"
+              "  /// indentado: clase, tamaño y cantidad de subvistas en cada nivel. Bajamos\n"
+              "  /// varios niveles a propósito porque el contenedor de Fabric (p.ej.\n"
+              "  /// RCTSurfaceView) puede existir vacío aunque React nunca haya montado nada\n"
+              "  /// adentro — hay que mirar DENTRO de él, no solo confirmar que existe.\n"
+              "  private static func describeViewTree(_ view: UIView?, depth: Int, maxDepth: Int) -> String {\n"
+              "    guard let view = view else {\n"
+              "      return String(repeating: \"  \", count: depth) + \"(nil)\\n\"\n"
+              "    }\n"
+              "    let indent = String(repeating: \"  \", count: depth)\n"
+              "    var text = \"\\(indent)\\(type(of: view)) size=\\(view.frame.size) subviews=\\(view.subviews.count)\\n\"\n"
+              "    if depth < maxDepth {\n"
+              "      for sub in view.subviews.prefix(6) {\n"
+              "        text += describeViewTree(sub, depth: depth + 1, maxDepth: maxDepth)\n"
+              "      }\n"
+              "    }\n"
+              "    return text\n"
               "  }\n"
               "\n"
               "  /// Diagnóstico temporal: muestra un cartel nativo (fuera de React) apenas\n"
@@ -865,15 +881,14 @@ jobs:
           with open(path, "w") as f:
               f.write(content)
 
-          print("AppDelegate.swift patched: the native boot-alive overlay stays on screen and updates itself")
-          print("live with: didFinishLaunchingWithOptions start, startReactNative() returning, best-effort RN")
-          print("bridge notifications (may never fire under bridgeless New Architecture — that absence alone")
-          print("is not conclusive), AND — the new, most robust check — a plain UIKit inspection of the REAL")
-          print("app window's view hierarchy at +1s/+3s/+6s/+10s/+15s (rootViewController class, root view")
-          print("class, size, subview count and names). This last one is agnostic to bridge vs bridgeless and")
-          print("to RN-internal API names, so it should tell us conclusively whether React ever mounts ANY")
-          print("view into the real app window, no matter what mode this build runs in. This overlay is")
-          print("diagnostic-only and should be removed once the real hang is found and fixed.")
+          print("AppDelegate.swift patched: the native boot-alive overlay now dumps a multi-level (depth 5)")
+          print("view-hierarchy tree of the REAL app window at +2s and +15s after startReactNative() — not")
+          print("just the first level. The prior build showed exactly 1 subview (RCTSurfaceView) unchanged")
+          print("from +1s to +15s, which is Fabric's static container and does not by itself prove whether")
+          print("React ever mounted content INSIDE it. This deeper dump will show that conclusively: if the")
+          print("tree never grows past RCTSurfaceView, React never rendered anything; if it does grow, we'll")
+          print("see exactly what class names appear. This overlay is diagnostic-only and should be removed")
+          print("once the real hang is found and fixed.")
           PYEOF
 
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
