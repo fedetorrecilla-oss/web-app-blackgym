@@ -544,6 +544,34 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: "Disable Rork's forced AnalyticsProvider/ai-sdk wrapper around app/_layout.tsx (suspected root cause of the black screen)"
+        run: |
+          python3 - <<'PYEOF'
+          path = "node_modules/@rork-ai/toolkit-sdk/metro/transformer.js"
+          with open(path) as f:
+              content = f.read()
+
+          needle = "  if (isRootLayout(props.filename)) {"
+          count = content.count(needle)
+          if count != 1:
+              print(f"::error::Expected exactly 1 occurrence of the isRootLayout wrapping check (found {count}) — @rork-ai/toolkit-sdk shape changed, aborting.")
+              raise SystemExit(1)
+
+          replacement = "  if (false && isRootLayout(props.filename)) { // BLACKGYM: disabled, see workflow"
+          content = content.replace(needle, replacement)
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("Disabled Rork's automatic RorkAnalyticsProvider/ai-sdk wrapper injection around app/_layout.tsx.")
+          PYEOF
+
+      - name: "Verify the AnalyticsProvider wrapper patch landed"
+        run: |
+          grep -q "BLACKGYM: disabled" node_modules/@rork-ai/toolkit-sdk/metro/transformer.js \
+            && echo "Patch verified in node_modules." \
+            || (echo "::error::toolkit-sdk transformer patch missing — aborting build." && exit 1)
+
       - name: Apply RN TurboModule crash patch (explicit, fail-fast)
         run: node scripts/patch-rn-turbomodule.js
 
