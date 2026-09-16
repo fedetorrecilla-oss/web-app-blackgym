@@ -1,4 +1,4 @@
-Tename: Build and upload to TestFlight
+name: Build and upload to TestFlight
 
 on:
   workflow_dispatch: {}
