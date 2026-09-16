@@ -1,4 +1,4 @@
-name: Build and upload to TestFlight
+Tename: Build and upload to TestFlight
 
 on:
   workflow_dispatch: {}
@@ -958,6 +958,60 @@ jobs:
           grep -q "main.jsbundle found\|main.jsbundle NOT FOUND" BlackGym/AppDelegate.swift \
             && echo "Patch verified in AppDelegate.swift." \
             || (echo "::error::bundle-checkpoint patch missing — aborting build." && exit 1)
+
+      - name: "Install RCTFatalHandler / RCTFatalExceptionHandler (diagnostic: catch a JS-fatal that the TurboModule patch would otherwise swallow silently)"
+        working-directory: expo/ios
+        run: |
+          python3 - <<'PYEOF'
+          path = "BlackGym/AppDelegate.swift"
+          with open(path) as f:
+              content = f.read()
+
+          func_anchor = "  /// Registra un checkpoint nativo (con timestamp relativo al arranque) y,\n"
+          if content.count(func_anchor) != 1:
+              print(f"::error::Expected exactly 1 occurrence of the recordNativeCheckpoint doc-comment anchor (found {content.count(func_anchor)}) — AppDelegate.swift shape changed, aborting.")
+              raise SystemExit(1)
+
+          new_func = (
+              "  /// Instala los handlers de RCTFatal para capturar un error fatal de JS\n"
+              "  /// (p.ej. una excepcion no atrapada durante el render inicial) que de otro\n"
+              "  /// modo el parche de TurboModule podria estar silenciando sin que se vea\n"
+              "  /// en ningun lado. Si esto dispara, lo vamos a ver en el cartel.\n"
+              "  static func installFatalHandlers() {\n"
+              "    RCTSetFatalHandler { error in\n"
+              "      let msg = error?.localizedDescription ?? \"(sin descripcion)\"\n"
+              "      CrashDiagnostics.recordNativeCheckpoint(\"RCTFatal (NSError): \\(msg)\")\n"
+              "    }\n"
+              "    RCTSetFatalExceptionHandler { exception in\n"
+              "      let name = exception?.name.rawValue ?? \"?\"\n"
+              "      let reason = exception?.reason ?? \"(sin razon)\"\n"
+              "      CrashDiagnostics.recordNativeCheckpoint(\"RCTFatal (NSException): \\(name) - \\(reason)\")\n"
+              "    }\n"
+              "  }\n"
+              "\n"
+          )
+
+          content = content.replace(func_anchor, new_func + func_anchor)
+
+          call_anchor = "    CrashDiagnostics.install()\n"
+          if content.count(call_anchor) != 1:
+              print(f"::error::Expected exactly 1 occurrence of the CrashDiagnostics.install() call anchor (found {content.count(call_anchor)}) — AppDelegate.swift shape changed, aborting.")
+              raise SystemExit(1)
+
+          content = content.replace(call_anchor, call_anchor + "    CrashDiagnostics.installFatalHandlers()\n")
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("Installed RCTSetFatalHandler / RCTSetFatalExceptionHandler, wired into recordNativeCheckpoint.")
+          PYEOF
+
+      - name: "Verify the fatal-handler patch landed"
+        working-directory: expo/ios
+        run: |
+          grep -q "installFatalHandlers" BlackGym/AppDelegate.swift \
+            && echo "Patch verified in AppDelegate.swift." \
+            || (echo "::error::fatal-handler patch missing — aborting build." && exit 1)
 
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
         working-directory: expo/ios
