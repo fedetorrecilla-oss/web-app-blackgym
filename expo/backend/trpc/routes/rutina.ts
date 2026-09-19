@@ -62,49 +62,49 @@ const workoutSetSchema = z.object({
 });
 
 export const rutinaRouter = createTRPCRouter({
-  getData: publicProcedure.query(() => {
+  getData: publicProcedure.query(async () => {
     return getRutinaStore();
   }),
 
   setExercises: publicProcedure
     .input(z.object({ exercises: z.array(exerciseSchema) }))
-    .mutation(({ input }) => {
-      setRutinaExercises(input.exercises);
+    .mutation(async ({ input }) => {
+      await setRutinaExercises(input.exercises);
       return { ok: true };
     }),
 
   setTemplates: publicProcedure
     .input(z.object({ templates: z.array(templateSchema) }))
-    .mutation(({ input }) => {
-      setRutinaTemplates(input.templates);
+    .mutation(async ({ input }) => {
+      await setRutinaTemplates(input.templates);
       return { ok: true };
     }),
 
   setDays: publicProcedure
     .input(z.object({ days: z.array(daySchema) }))
-    .mutation(({ input }) => {
-      setRutinaDays(input.days);
+    .mutation(async ({ input }) => {
+      await setRutinaDays(input.days);
       return { ok: true };
     }),
 
   setDayExercises: publicProcedure
     .input(z.object({ dayExercises: z.array(dayExerciseSchema) }))
-    .mutation(({ input }) => {
-      setRutinaDayExercises(input.dayExercises);
+    .mutation(async ({ input }) => {
+      await setRutinaDayExercises(input.dayExercises);
       return { ok: true };
     }),
 
   setWorkouts: publicProcedure
     .input(z.object({ workouts: z.array(workoutSchema) }))
-    .mutation(({ input }) => {
-      setRutinaWorkouts(input.workouts);
+    .mutation(async ({ input }) => {
+      await setRutinaWorkouts(input.workouts);
       return { ok: true };
     }),
 
   setWorkoutSets: publicProcedure
     .input(z.object({ workoutSets: z.array(workoutSetSchema) }))
-    .mutation(({ input }) => {
-      setRutinaWorkoutSets(input.workoutSets);
+    .mutation(async ({ input }) => {
+      await setRutinaWorkoutSets(input.workoutSets);
       return { ok: true };
     }),
 });

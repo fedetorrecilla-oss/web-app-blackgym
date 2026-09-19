@@ -10,8 +10,8 @@ import {
 } from "../store";
 
 export const gymRouter = createTRPCRouter({
-  getData: publicProcedure.query(() => {
-    const store = getStore();
+  getData: publicProcedure.query(async () => {
+    const store = await getStore();
     return {
       students: store.students,
       bookings: store.bookings,
@@ -35,8 +35,8 @@ export const gymRouter = createTRPCRouter({
         ),
       })
     )
-    .mutation(({ input }) => {
-      setStudents(input.students);
+    .mutation(async ({ input }) => {
+      await setStudents(input.students);
       return { ok: true };
     }),
 
@@ -53,8 +53,8 @@ export const gymRouter = createTRPCRouter({
         ),
       })
     )
-    .mutation(({ input }) => {
-      setBookings(input.bookings);
+    .mutation(async ({ input }) => {
+      await setBookings(input.bookings);
       return { ok: true };
     }),
 
@@ -71,8 +71,8 @@ export const gymRouter = createTRPCRouter({
         ),
       })
     )
-    .mutation(({ input }) => {
-      setBlockedSlots(input.blockedSlots);
+    .mutation(async ({ input }) => {
+      await setBlockedSlots(input.blockedSlots);
       return { ok: true };
     }),
 
@@ -89,8 +89,8 @@ export const gymRouter = createTRPCRouter({
         ),
       })
     )
-    .mutation(({ input }) => {
-      setPayments(input.payments);
+    .mutation(async ({ input }) => {
+      await setPayments(input.payments);
       return { ok: true };
     }),
 
@@ -105,8 +105,8 @@ export const gymRouter = createTRPCRouter({
         }),
       })
     )
-    .mutation(({ input }) => {
-      setPricing(input.pricing);
+    .mutation(async ({ input }) => {
+      await setPricing(input.pricing);
       return { ok: true };
     }),
 });
