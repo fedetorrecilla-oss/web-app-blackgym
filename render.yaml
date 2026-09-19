@@ -1,0 +1,25 @@
+# Render Blueprint for the Gym Turnos API backend.
+#
+# In the Render dashboard: New + > Blueprint > pick this repo > Render
+# reads this file and proposes the service below automatically. The two
+# secret values (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) are intentionally
+# left blank here (sync: false) — Render will prompt for them once during
+# setup, and they're stored only in Render's dashboard, never in this repo.
+#
+# This project uses Bun (see expo/bun.lock), which Render's Node
+# environment doesn't ship by default, so the build command installs it
+# first. --ignore-scripts skips postinstall's React Native/native patch
+# scripts, which only matter for the mobile app build, not this backend.
+services:
+  - type: web
+    name: blackgym-api
+    runtime: node
+    rootDir: expo
+    buildCommand: curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install --ignore-scripts
+    startCommand: ~/.bun/bin/bun run backend/server.ts
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
