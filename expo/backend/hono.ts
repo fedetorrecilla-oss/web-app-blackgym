@@ -9,8 +9,14 @@ const app = new Hono();
 
 app.use("*", cors());
 
+// Mounted at the same path the client calls (see expo/lib/trpc.ts:
+// `${baseUrl}/api/trpc`). On Rork's own hosting this used to be mounted at
+// "/trpc/*" because their proxy stripped the "/api" prefix before it ever
+// reached this file; serving the backend standalone on Render (no such
+// proxy in front of it), the mount path has to match what the client
+// actually requests, so it's "/api/trpc/*" here.
 app.use(
-  "/trpc/*",
+  "/api/trpc/*",
   trpcServer({
     endpoint: "/api/trpc",
     router: appRouter,
