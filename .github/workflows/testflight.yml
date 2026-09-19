@@ -1,5 +1,3 @@
-
-Testflight · YML
 name: Build and upload to TestFlight
  
 on:
