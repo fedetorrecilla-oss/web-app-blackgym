@@ -1201,6 +1201,3 @@ jobs:
             expo/ios/*.xcresult
             expo/ios/build
           if-no-files-found: ignore
- 
-
-Descargado testflight_10.yml Mostrar en Finder
