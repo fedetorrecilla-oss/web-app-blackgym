@@ -1080,6 +1080,40 @@ jobs:
             && echo "Patch verified in AppDelegate.swift." \
             || (echo "::error::boot-alive disable patch missing - aborting build." && exit 1)
  
+      - name: "Disable the JS boot-trace overlay now that diagnostics confirm the real screen renders (stop leaving the debug panel on screen)"
+        run: |
+          python3 - <<'PYEOF3'
+          path = "app/_layout.tsx"
+          with open(path) as f:
+              content = f.read()
+
+          anchor = (
+              "      <BootTraceOverlay />\n"
+              "    </>\n"
+          )
+          count = content.count(anchor)
+          if count != 1:
+              print(f"::error::Expected exactly 1 occurrence of the BootTraceOverlay render anchor (found {count}) - _layout.tsx shape changed, aborting.")
+              raise SystemExit(1)
+
+          patch = (
+              "      {/* <BootTraceOverlay /> */}\n"
+              "    </>\n"
+          )
+          content = content.replace(anchor, patch)
+
+          with open(path, "w") as f:
+              f.write(content)
+
+          print("Disabled BootTraceOverlay: the on-screen debug panel no longer renders.")
+          PYEOF3
+
+      - name: "Verify the JS boot-trace overlay was disabled"
+        run: |
+          grep -qF "{/* <BootTraceOverlay /> */}" app/_layout.tsx \
+            && echo "Patch verified in _layout.tsx." \
+            || (echo "::error::JS boot-trace overlay disable patch missing - aborting build." && exit 1)
+
       - name: "Patch Podfile: force C++17 for fmt pod (Xcode 26 consteval fix)"
         working-directory: expo/ios
         run: |
