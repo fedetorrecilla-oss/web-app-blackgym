@@ -6,17 +6,20 @@
 # left blank here (sync: false) — Render will prompt for them once during
 # setup, and they're stored only in Render's dashboard, never in this repo.
 #
-# This project uses Bun (see expo/bun.lock), which Render's Node
-# environment doesn't ship by default, so the build command installs it
-# first. --ignore-scripts skips postinstall's React Native/native patch
-# scripts, which only matter for the mobile app build, not this backend.
+# Render has native Bun support: since expo/bun.lock exists in this repo,
+# Render automatically makes a `bun` binary available on PATH for this
+# service, no manual install needed. (An earlier version of this file
+# curl-installed Bun into $HOME during the build step, but Render's build
+# and run steps don't share $HOME, so that binary was missing by the time
+# the service actually started — "No such file or directory". Relying on
+# the native runtime avoids that entirely.)
 services:
   - type: web
     name: blackgym-api
     runtime: node
     rootDir: expo
-    buildCommand: curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install --ignore-scripts
-    startCommand: ~/.bun/bin/bun run backend/server.ts
+    buildCommand: bun install --ignore-scripts
+    startCommand: bun run backend/server.ts
     plan: free
     envVars:
       - key: SUPABASE_URL
