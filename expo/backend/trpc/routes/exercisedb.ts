@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../create-context";
 import { searchExerciseDb, fetchExerciseGif } from "../../exercisedb-client";
+import { normalizeGifFrameDelays } from "../../gif-utils";
 import { supabase } from "../../supabase-client";
 
 // Supabase Storage bucket that holds the re-hosted exercise GIFs. Must be
@@ -30,7 +31,15 @@ export const exercisedbRouter = createTRPCRouter({
       const ext = contentType.includes("gif") ? "gif" : "png";
       const path = `${input.exerciseId}.${ext}`;
 
-      const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, buffer, {
+      // ExerciseDB's free-plan GIFs are genuinely animated, but timed as a
+      // long hold on each end position with only a brief transition burst
+      // between them — that reads as "flipping between two photos" instead
+      // of a moving demo. Re-time every frame to a small uniform delay so
+      // the exact same frames play back as continuous motion. No-op (safe
+      // passthrough) for non-GIF images.
+      const uploadBuffer = ext === "gif" ? normalizeGifFrameDelays(buffer) : buffer;
+
+      const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, uploadBuffer, {
         contentType,
         upsert: true,
       });
