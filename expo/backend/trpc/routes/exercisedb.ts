@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../create-context";
 import { searchExerciseDb, fetchExerciseGif } from "../../exercisedb-client";
@@ -51,8 +52,22 @@ export const exercisedbRouter = createTRPCRouter({
 
       const { data: publicUrlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-      console.log("[exercisedb] Imported GIF for", input.exerciseName, "->", publicUrlData.publicUrl);
+      // The path (and therefore the public URL) is deterministic per
+      // exercise, so re-importing the same exercise later (e.g. after we
+      // improve how we process the GIF, like the frame-retiming above)
+      // re-uploads to the *same* URL. Phones aggressively cache images on
+      // disk by URL, so without this the app can keep showing the old
+      // bytes indefinitely even after a force-quit/reopen. Appending a
+      // short hash of the actual (post-processing) file content makes the
+      // URL change whenever the content changes, so the app is guaranteed
+      // to fetch fresh bytes instead of serving a stale disk cache — while
+      // re-importing identical content keeps the same URL (no needless
+      // cache invalidation).
+      const contentHash = createHash("sha1").update(uploadBuffer).digest("hex").slice(0, 10);
+      const videoUrl = `${publicUrlData.publicUrl}?v=${contentHash}`;
 
-      return { videoUrl: publicUrlData.publicUrl };
+      console.log("[exercisedb] Imported GIF for", input.exerciseName, "->", videoUrl);
+
+      return { videoUrl };
     }),
 });
