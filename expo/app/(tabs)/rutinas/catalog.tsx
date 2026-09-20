@@ -22,6 +22,12 @@ import {
 // GIFs properly. Kept as a separate import so the plain reference-image
 // carousel further below can keep using react-native's Image unchanged.
 import { Image as GifImage } from 'expo-image';
+// Real per-exercise demo videos (see backend/exercise-video-db.ts) are MP4s,
+// not GIFs — expo-video is the maintained Expo video component (expo-av is
+// being phased out) and, same idea as GifImage above, loops/autoplays them
+// muted so they read as a moving demo rather than something you have to hit
+// play on.
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   Plus,
   Trash2,
@@ -67,7 +73,7 @@ const DIFFICULTY_COLORS: Record<Difficulty, string> = {
 };
 
 export default function CatalogScreen() {
-  const { exercises, addExercise, updateExercise, deleteExercise } = useRutina();
+  const { exercises, addExercise, updateExercise, deleteExercise, addExercisesBulk } = useRutina();
 
   const [search, setSearch] = useState('');
   const [muscleFilter, setMuscleFilter] = useState<string | null>(null);
@@ -84,49 +90,133 @@ export default function CatalogScreen() {
 
   const [detailExercise, setDetailExercise] = useState<RutinaExercise | null>(null);
 
-  // --- ExerciseDB search (GIF import into Supabase Storage) ---
+  // --- Real exercise video search (see backend/exercise-video-db.ts) ---
+  // Search is instant/local on the backend (no external API), so no need
+  // for a long debounce — this just avoids re-querying on every keystroke.
   const [showEdbSearch, setShowEdbSearch] = useState(false);
   const [edbQuery, setEdbQuery] = useState('');
   const [edbDebouncedQuery, setEdbDebouncedQuery] = useState('');
   const [importingExerciseId, setImportingExerciseId] = useState<string | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setEdbDebouncedQuery(edbQuery.trim()), 450);
+    const t = setTimeout(() => setEdbDebouncedQuery(edbQuery.trim()), 250);
     return () => clearTimeout(t);
   }, [edbQuery]);
 
-  const edbSearchQuery = trpc.exercisedb.search.useQuery(
+  const videoSearchQuery = trpc.exercisedb.searchVideos.useQuery(
     { query: edbDebouncedQuery },
-    { enabled: edbDebouncedQuery.length >= 3 },
+    { enabled: edbDebouncedQuery.length >= 2 },
   );
-  const importGifMutation = trpc.exercisedb.importGif.useMutation();
+  const importVideoMutation = trpc.exercisedb.importVideo.useMutation();
 
   const handlePickEdbResult = useCallback(
-    async (result: { id: string; name: string }) => {
-      setImportingExerciseId(result.id);
+    async (result: { sourceId: string; name: string; muscleGroup: string; equipment: string; difficulty: string }) => {
+      setImportingExerciseId(result.sourceId);
       try {
-        const res = await importGifMutation.mutateAsync({
-          exerciseId: result.id,
-          exerciseName: result.name,
-        });
+        const res = await importVideoMutation.mutateAsync({ sourceId: result.sourceId });
         setFormVideoUrl(res.videoUrl);
+        setFormNotes(res.notes);
+        setFormMuscleGroup(res.muscleGroup);
+        if (res.equipment) setFormEquipment(res.equipment);
+        if (res.difficulty === 'principiante' || res.difficulty === 'intermedio' || res.difficulty === 'avanzado') {
+          setFormDifficulty(res.difficulty);
+        }
         if (!formName.trim()) {
-          setFormName(result.name);
+          setFormName(res.name);
         }
         setShowEdbSearch(false);
         setEdbQuery('');
       } catch (err) {
-        console.log('[catalog] ExerciseDB import failed:', err);
+        console.log('[catalog] Video import failed:', err);
         Alert.alert(
           'Error',
-          'No se pudo traer el GIF de ExerciseDB. Probá de nuevo en un momento.',
+          'No se pudo traer el video del ejercicio. Probá de nuevo en un momento.',
         );
       } finally {
         setImportingExerciseId(null);
       }
     },
-    [importGifMutation, formName],
+    [importVideoMutation, formName],
   );
+
+  // --- Bulk "import the whole catalog" flow ---
+  const [bulkImport, setBulkImport] = useState<{
+    running: boolean;
+    done: number;
+    total: number;
+    currentName: string;
+    failed: string[];
+  } | null>(null);
+  const bulkCancelRef = useRef(false);
+  const listVideoDbQuery = trpc.exercisedb.listVideoDb.useQuery(undefined, { enabled: false });
+
+  const handleBulkImportAll = useCallback(async () => {
+    const listRes = await listVideoDbQuery.refetch();
+    const all = listRes.data?.results ?? [];
+    if (all.length === 0) {
+      Alert.alert('Error', 'No se pudo cargar la base de videos. Probá de nuevo en un momento.');
+      return;
+    }
+
+    const existingNames = new Set(exercises.map(e => e.name.trim().toLowerCase()));
+    const toImport = all.filter(e => !existingNames.has(e.name.trim().toLowerCase()));
+
+    if (toImport.length === 0) {
+      Alert.alert('Listo', 'Ya tenés cargados todos los ejercicios de la base de videos.');
+      return;
+    }
+
+    bulkCancelRef.current = false;
+    setBulkImport({ running: true, done: 0, total: toImport.length, currentName: '', failed: [] });
+
+    // Accumulate locally instead of calling addExercise once per item: the
+    // context's addExercise reads its `exercises` list from a closure that
+    // only updates on the next render, so many rapid-fire calls would each
+    // append to the same stale snapshot and silently drop all but the last
+    // one. addExercisesBulk takes the full list of new exercises at once
+    // and appends them in a single, race-free update — see RutinaContext.
+    const newOnes: RutinaExercise[] = [];
+    let checkpointed = 0;
+    const failed: string[] = [];
+
+    for (const entry of toImport) {
+      if (bulkCancelRef.current) break;
+      setBulkImport(prev => (prev ? { ...prev, currentName: entry.name } : prev));
+      try {
+        const res = await importVideoMutation.mutateAsync({ sourceId: entry.sourceId });
+        newOnes.push({
+          id: generateLocalId(),
+          name: res.name,
+          videoUrl: res.videoUrl,
+          muscleGroup: res.muscleGroup,
+          equipment: res.equipment || undefined,
+          difficulty:
+            res.difficulty === 'principiante' || res.difficulty === 'intermedio' || res.difficulty === 'avanzado'
+              ? res.difficulty
+              : 'principiante',
+          notes: res.notes || undefined,
+        });
+      } catch (err) {
+        console.log('[catalog] Bulk import failed for', entry.name, err);
+        failed.push(entry.name);
+      }
+      setBulkImport(prev =>
+        prev ? { ...prev, done: prev.done + 1, failed: [...failed] } : prev,
+      );
+      // Checkpoint every 15 imports so a crash/close mid-run doesn't lose
+      // everything imported so far — not just one final save at the end.
+      if (newOnes.length - checkpointed >= 15) {
+        await addExercisesBulk(newOnes.slice(checkpointed));
+        checkpointed = newOnes.length;
+      }
+    }
+
+    if (newOnes.length > checkpointed) {
+      await addExercisesBulk(newOnes.slice(checkpointed));
+    }
+
+    setBulkImport(prev => (prev ? { ...prev, running: false } : prev));
+  }, [exercises, listVideoDbQuery, importVideoMutation, addExercisesBulk]);
 
   const detailImages = useMemo(
     () => (detailExercise ? getExerciseImages(detailExercise.name) : []),
@@ -335,6 +425,23 @@ export default function CatalogScreen() {
         )}
       </ScrollView>
 
+      <TouchableOpacity
+        style={styles.fabSecondary}
+        onPress={() =>
+          Alert.alert(
+            'Importar catálogo',
+            'Esto agrega automáticamente todos los ejercicios de la base de videos que todavía no tenés cargados (cada uno con su video real y sus indicaciones en español). Puede tardar varios minutos.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Importar', onPress: handleBulkImportAll },
+            ],
+          )
+        }
+        activeOpacity={0.8}
+      >
+        <Download size={20} color={Colors.primary} />
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.fab} onPress={() => setShowForm(true)} activeOpacity={0.8}>
         <Plus size={24} color={Colors.black} />
       </TouchableOpacity>
@@ -379,11 +486,16 @@ export default function CatalogScreen() {
               ) : null}
 
               {detailExercise.videoUrl ? (
-                isImageUrl(detailExercise.videoUrl) ? (
-                  // GIF imported from ExerciseDB (or any direct image URL): render it
-                  // inline so it actually animates in the app, instead of handing off
-                  // to the system browser/Quick Look, which can show it as a frozen
-                  // still frame instead of playing the movement.
+                isVideoUrl(detailExercise.videoUrl) ? (
+                  // Real MP4 demo video (see backend/exercise-video-db.ts).
+                  <View style={styles.gifCard}>
+                    <ExerciseVideoPlayer uri={detailExercise.videoUrl} />
+                  </View>
+                ) : isImageUrl(detailExercise.videoUrl) ? (
+                  // GIF imported from the old ExerciseDB pipeline (or any direct
+                  // image URL): render it inline so it actually animates in the
+                  // app, instead of handing off to the system browser/Quick
+                  // Look, which can show it as a frozen still frame.
                   <View style={styles.gifCard}>
                     <GifImage
                       source={{ uri: detailExercise.videoUrl }}
@@ -495,10 +607,14 @@ export default function CatalogScreen() {
               activeOpacity={0.8}
             >
               <Wand2 size={16} color={Colors.primary} />
-              <Text style={styles.edbSearchBtnText}>Buscar GIF en ExerciseDB</Text>
+              <Text style={styles.edbSearchBtnText}>Buscar video real del ejercicio</Text>
             </TouchableOpacity>
             {formVideoUrl ? (
-              <GifImage source={{ uri: formVideoUrl }} style={styles.formGifPreview} contentFit="contain" autoplay />
+              isVideoUrl(formVideoUrl) ? (
+                <ExerciseVideoPlayer uri={formVideoUrl} style={styles.formGifPreview} />
+              ) : (
+                <GifImage source={{ uri: formVideoUrl }} style={styles.formGifPreview} contentFit="contain" autoplay />
+              )
             ) : null}
             <Text style={styles.inputLabel}>Notas técnicas (opcional)</Text>
             <TextInput
@@ -518,9 +634,10 @@ export default function CatalogScreen() {
         </View>
       </Modal>
 
-      {/* ExerciseDB search modal — pick a real exercise GIF, it gets
+      {/* Real-video search modal — pick a real exercise demo video, it gets
           downloaded once and re-hosted permanently in our own Supabase
-          Storage bucket (no ongoing dependency on the external API). */}
+          Storage bucket (no ongoing dependency on the external source), and
+          its Spanish instructions get filled in automatically. */}
       <Modal
         visible={showEdbSearch}
         animationType="slide"
@@ -529,7 +646,7 @@ export default function CatalogScreen() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Buscar en ExerciseDB</Text>
+            <Text style={styles.modalTitle}>Buscar ejercicio</Text>
             <TouchableOpacity onPress={() => setShowEdbSearch(false)}>
               <X size={22} color={Colors.textSecondary} />
             </TouchableOpacity>
@@ -553,42 +670,43 @@ export default function CatalogScreen() {
               )}
             </View>
             <Text style={styles.edbHint}>
-              ExerciseDB está en inglés. Buscá por el nombre del ejercicio en inglés para mejores resultados.
+              La base de datos está en inglés, así que buscá el nombre del ejercicio en inglés. El video y las
+              indicaciones (ya traducidas al español) se cargan solos al elegir un resultado.
             </Text>
 
-            {edbDebouncedQuery.length > 0 && edbDebouncedQuery.length < 3 && (
-              <Text style={styles.edbHint}>Escribí al menos 3 letras...</Text>
+            {edbDebouncedQuery.length > 0 && edbDebouncedQuery.length < 2 && (
+              <Text style={styles.edbHint}>Escribí al menos 2 letras...</Text>
             )}
 
-            {edbSearchQuery.isFetching && (
+            {videoSearchQuery.isFetching && (
               <View style={styles.edbLoadingRow}>
                 <ActivityIndicator color={Colors.primary} />
                 <Text style={styles.edbHint}>Buscando...</Text>
               </View>
             )}
 
-            {edbSearchQuery.isError && (
+            {videoSearchQuery.isError && (
               <Text style={styles.edbErrorText}>
-                No se pudo conectar con ExerciseDB. Probá de nuevo en un momento.
+                No se pudo buscar en la base de videos. Probá de nuevo en un momento.
               </Text>
             )}
 
             <ScrollView style={styles.edbResultsScroll} keyboardShouldPersistTaps="handled">
-              {(edbSearchQuery.data?.results ?? []).map(result => {
-                const isImporting = importingExerciseId === result.id;
+              {(videoSearchQuery.data?.results ?? []).map(result => {
+                const isImporting = importingExerciseId === result.sourceId;
                 return (
                   <TouchableOpacity
-                    key={result.id}
+                    key={result.sourceId}
                     style={styles.edbResultCard}
                     onPress={() => handlePickEdbResult(result)}
-                    disabled={importGifMutation.isPending}
+                    disabled={importVideoMutation.isPending}
                     activeOpacity={0.7}
                   >
                     <View style={styles.edbResultInfo}>
                       <Text style={styles.edbResultName}>{result.name}</Text>
                       <View style={styles.badgeRow}>
                         <View style={styles.badge}>
-                          <Text style={styles.badgeText}>{result.target}</Text>
+                          <Text style={styles.badgeText}>{MUSCLE_ICONS[result.muscleGroup] ?? '🏋️'} {result.muscleGroup}</Text>
                         </View>
                         {result.equipment ? (
                           <View style={styles.badge}>
@@ -605,10 +723,82 @@ export default function CatalogScreen() {
                   </TouchableOpacity>
                 );
               })}
-              {edbSearchQuery.data && edbSearchQuery.data.results.length === 0 && (
+              {videoSearchQuery.data && videoSearchQuery.data.results.length === 0 && (
                 <Text style={styles.edbHint}>Sin resultados para &quot;{edbDebouncedQuery}&quot;.</Text>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bulk "import the whole catalog" progress modal. */}
+      <Modal
+        visible={bulkImport !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          if (!bulkImport?.running) setBulkImport(null);
+        }}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Importar catálogo</Text>
+            {!bulkImport?.running && (
+              <TouchableOpacity onPress={() => setBulkImport(null)}>
+                <X size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.edbModalBody}>
+            {bulkImport && (
+              <>
+                <Text style={styles.bulkProgressText}>
+                  {bulkImport.done} / {bulkImport.total} ejercicios
+                </Text>
+                <View style={styles.bulkProgressBarTrack}>
+                  <View
+                    style={[
+                      styles.bulkProgressBarFill,
+                      { width: `${bulkImport.total > 0 ? (bulkImport.done / bulkImport.total) * 100 : 0}%` },
+                    ]}
+                  />
+                </View>
+                {bulkImport.running ? (
+                  <>
+                    <View style={styles.edbLoadingRow}>
+                      <ActivityIndicator color={Colors.primary} />
+                      <Text style={styles.edbHint} numberOfLines={1}>
+                        Importando: {bulkImport.currentName}
+                      </Text>
+                    </View>
+                    <Text style={styles.edbHint}>
+                      Puede tardar varios minutos. Mantené la app abierta hasta que termine.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.deleteBtn}
+                      onPress={() => { bulkCancelRef.current = true; }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.deleteBtnText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.edbHint}>
+                      {bulkImport.failed.length === 0
+                        ? '¡Listo! Se importaron todos los ejercicios.'
+                        : `Listo, con ${bulkImport.failed.length} ejercicio(s) que no se pudieron importar.`}
+                    </Text>
+                    {bulkImport.failed.length > 0 && (
+                      <Text style={styles.edbHint}>{bulkImport.failed.join(', ')}</Text>
+                    )}
+                    <TouchableOpacity style={styles.submitBtn} onPress={() => setBulkImport(null)} activeOpacity={0.8}>
+                      <Text style={styles.submitBtnText}>Cerrar</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -620,6 +810,39 @@ export default function CatalogScreen() {
  *  imports) as opposed to a page URL like a YouTube link. */
 function isImageUrl(url: string): boolean {
   return /\.(gif|png|jpe?g|webp)(\?.*)?$/i.test(url.trim());
+}
+
+/** True for a direct video file URL (our Supabase-hosted real exercise
+ *  demo videos) as opposed to a page URL like a YouTube link. */
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(url.trim());
+}
+
+/** Simple locally-generated id for exercises created outside RutinaContext
+ *  (the bulk-import flow builds RutinaExercise objects directly instead of
+ *  going through addExercise once per item — see handleBulkImportAll). */
+function generateLocalId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Real exercise demo video — loops, muted, autoplaying, no controls, same
+ *  "just show the movement" treatment as GifImage above but for MP4s. */
+function ExerciseVideoPlayer({ uri, style }: { uri: string; style?: object }) {
+  const player = useVideoPlayer(uri, p => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={style ?? styles.gifImage}
+      contentFit="contain"
+      nativeControls={false}
+      allowsFullscreen={false}
+      allowsPictureInPicture={false}
+    />
+  );
 }
 
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
@@ -748,6 +971,19 @@ const styles = StyleSheet.create({
     elevation: 6, shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8,
   },
+  fabSecondary: {
+    position: 'absolute', bottom: 24, right: 86, width: 48, height: 48,
+    borderRadius: 24, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.primary,
+    elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15, shadowRadius: 6,
+  },
+  bulkProgressText: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, marginTop: 8 },
+  bulkProgressBarTrack: {
+    height: 10, borderRadius: 5, backgroundColor: Colors.surface, marginTop: 10, marginBottom: 16,
+    overflow: 'hidden', borderWidth: 1, borderColor: Colors.border,
+  },
+  bulkProgressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 5 },
   modalContainer: { flex: 1, backgroundColor: Colors.background },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
