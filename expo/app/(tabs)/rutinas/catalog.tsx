@@ -14,6 +14,14 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
+// expo-image (not react-native's core Image) is used for the ExerciseDB GIFs
+// below: React Native's built-in <Image> only decodes and shows a single
+// static frame of a multi-frame GIF on iOS, which is exactly the "looks like
+// a photo"/"two photos" symptom reported — expo-image uses the platform's
+// animated-image decoders (SDWebImage on iOS, Glide on Android) and plays
+// GIFs properly. Kept as a separate import so the plain reference-image
+// carousel further below can keep using react-native's Image unchanged.
+import { Image as GifImage } from 'expo-image';
 import {
   Plus,
   Trash2,
@@ -377,10 +385,11 @@ export default function CatalogScreen() {
                   // to the system browser/Quick Look, which can show it as a frozen
                   // still frame instead of playing the movement.
                   <View style={styles.gifCard}>
-                    <Image
+                    <GifImage
                       source={{ uri: detailExercise.videoUrl }}
                       style={styles.gifImage}
-                      resizeMode="contain"
+                      contentFit="contain"
+                      autoplay
                     />
                   </View>
                 ) : (
@@ -489,7 +498,7 @@ export default function CatalogScreen() {
               <Text style={styles.edbSearchBtnText}>Buscar GIF en ExerciseDB</Text>
             </TouchableOpacity>
             {formVideoUrl ? (
-              <Image source={{ uri: formVideoUrl }} style={styles.formGifPreview} resizeMode="contain" />
+              <GifImage source={{ uri: formVideoUrl }} style={styles.formGifPreview} contentFit="contain" autoplay />
             ) : null}
             <Text style={styles.inputLabel}>Notas técnicas (opcional)</Text>
             <TextInput
