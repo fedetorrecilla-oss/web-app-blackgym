@@ -12,6 +12,7 @@ import {
   Linking,
   Image,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import {
   Plus,
@@ -25,10 +26,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Images,
+  Wand2,
+  Download,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useRutina } from '@/context/RutinaContext';
 import { getExerciseImages } from '@/lib/exercise-images';
+import { trpc } from '@/lib/trpc';
 import {
   MUSCLE_GROUPS,
   EQUIPMENT_TYPES,
@@ -71,6 +75,50 @@ export default function CatalogScreen() {
   const [formDifficulty, setFormDifficulty] = useState<Difficulty>('principiante');
 
   const [detailExercise, setDetailExercise] = useState<RutinaExercise | null>(null);
+
+  // --- ExerciseDB search (GIF import into Supabase Storage) ---
+  const [showEdbSearch, setShowEdbSearch] = useState(false);
+  const [edbQuery, setEdbQuery] = useState('');
+  const [edbDebouncedQuery, setEdbDebouncedQuery] = useState('');
+  const [importingExerciseId, setImportingExerciseId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setEdbDebouncedQuery(edbQuery.trim()), 450);
+    return () => clearTimeout(t);
+  }, [edbQuery]);
+
+  const edbSearchQuery = trpc.exercisedb.search.useQuery(
+    { query: edbDebouncedQuery },
+    { enabled: edbDebouncedQuery.length >= 3 },
+  );
+  const importGifMutation = trpc.exercisedb.importGif.useMutation();
+
+  const handlePickEdbResult = useCallback(
+    async (result: { id: string; name: string }) => {
+      setImportingExerciseId(result.id);
+      try {
+        const res = await importGifMutation.mutateAsync({
+          exerciseId: result.id,
+          exerciseName: result.name,
+        });
+        setFormVideoUrl(res.videoUrl);
+        if (!formName.trim()) {
+          setFormName(result.name);
+        }
+        setShowEdbSearch(false);
+        setEdbQuery('');
+      } catch (err) {
+        console.log('[catalog] ExerciseDB import failed:', err);
+        Alert.alert(
+          'Error',
+          'No se pudo traer el GIF de ExerciseDB. Probá de nuevo en un momento.',
+        );
+      } finally {
+        setImportingExerciseId(null);
+      }
+    },
+    [importGifMutation, formName],
+  );
 
   const detailImages = useMemo(
     () => (detailExercise ? getExerciseImages(detailExercise.name) : []),
@@ -418,6 +466,17 @@ export default function CatalogScreen() {
               autoCapitalize="none"
               keyboardType="url"
             />
+            <TouchableOpacity
+              style={styles.edbSearchBtn}
+              onPress={() => setShowEdbSearch(true)}
+              activeOpacity={0.8}
+            >
+              <Wand2 size={16} color={Colors.primary} />
+              <Text style={styles.edbSearchBtnText}>Buscar GIF en ExerciseDB</Text>
+            </TouchableOpacity>
+            {formVideoUrl ? (
+              <Image source={{ uri: formVideoUrl }} style={styles.formGifPreview} resizeMode="contain" />
+            ) : null}
             <Text style={styles.inputLabel}>Notas técnicas (opcional)</Text>
             <TextInput
               style={[styles.input, styles.notesInput]}
@@ -433,6 +492,101 @@ export default function CatalogScreen() {
               <Text style={styles.submitBtnText}>{editingId ? 'Guardar Cambios' : 'Crear Ejercicio'}</Text>
             </TouchableOpacity>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ExerciseDB search modal — pick a real exercise GIF, it gets
+          downloaded once and re-hosted permanently in our own Supabase
+          Storage bucket (no ongoing dependency on the external API). */}
+      <Modal
+        visible={showEdbSearch}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowEdbSearch(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Buscar en ExerciseDB</Text>
+            <TouchableOpacity onPress={() => setShowEdbSearch(false)}>
+              <X size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.edbModalBody}>
+            <View style={styles.searchBar}>
+              <Search size={18} color={Colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="En inglés, ej: squat, bench press..."
+                placeholderTextColor={Colors.textMuted}
+                value={edbQuery}
+                onChangeText={setEdbQuery}
+                autoCapitalize="none"
+                autoFocus
+              />
+              {edbQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setEdbQuery('')}>
+                  <X size={18} color={Colors.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.edbHint}>
+              ExerciseDB está en inglés. Buscá por el nombre del ejercicio en inglés para mejores resultados.
+            </Text>
+
+            {edbDebouncedQuery.length > 0 && edbDebouncedQuery.length < 3 && (
+              <Text style={styles.edbHint}>Escribí al menos 3 letras...</Text>
+            )}
+
+            {edbSearchQuery.isFetching && (
+              <View style={styles.edbLoadingRow}>
+                <ActivityIndicator color={Colors.primary} />
+                <Text style={styles.edbHint}>Buscando...</Text>
+              </View>
+            )}
+
+            {edbSearchQuery.isError && (
+              <Text style={styles.edbErrorText}>
+                No se pudo conectar con ExerciseDB. Probá de nuevo en un momento.
+              </Text>
+            )}
+
+            <ScrollView style={styles.edbResultsScroll} keyboardShouldPersistTaps="handled">
+              {(edbSearchQuery.data?.results ?? []).map(result => {
+                const isImporting = importingExerciseId === result.id;
+                return (
+                  <TouchableOpacity
+                    key={result.id}
+                    style={styles.edbResultCard}
+                    onPress={() => handlePickEdbResult(result)}
+                    disabled={importGifMutation.isPending}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.edbResultInfo}>
+                      <Text style={styles.edbResultName}>{result.name}</Text>
+                      <View style={styles.badgeRow}>
+                        <View style={styles.badge}>
+                          <Text style={styles.badgeText}>{result.target}</Text>
+                        </View>
+                        {result.equipment ? (
+                          <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{result.equipment}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                    {isImporting ? (
+                      <ActivityIndicator color={Colors.primary} />
+                    ) : (
+                      <Download size={18} color={Colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              {edbSearchQuery.data && edbSearchQuery.data.results.length === 0 && (
+                <Text style={styles.edbHint}>Sin resultados para &quot;{edbDebouncedQuery}&quot;.</Text>
+              )}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </Animated.View>
@@ -639,4 +793,27 @@ const styles = StyleSheet.create({
   chipTextActive: { color: Colors.primary, fontWeight: '600' as const },
   submitBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 28 },
   submitBtnText: { fontSize: 16, fontWeight: '700' as const, color: Colors.black },
+  edbSearchBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.primaryLight, borderRadius: 12, paddingVertical: 12,
+    borderWidth: 1, borderColor: Colors.primary, borderStyle: 'dashed', marginTop: 10,
+  },
+  edbSearchBtnText: { fontSize: 13, fontWeight: '700' as const, color: Colors.primary },
+  formGifPreview: {
+    width: '100%', height: 160, marginTop: 12,
+    backgroundColor: '#FFFFFF', borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  edbModalBody: { flex: 1, padding: 16 },
+  edbHint: { fontSize: 12, color: Colors.textMuted, marginTop: 8, paddingHorizontal: 2 },
+  edbErrorText: { fontSize: 13, color: Colors.error, marginTop: 10, paddingHorizontal: 2 },
+  edbLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  edbResultsScroll: { flex: 1, marginTop: 10 },
+  edbResultCard: {
+    backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  edbResultInfo: { flex: 1, gap: 6 },
+  edbResultName: { fontSize: 14, fontWeight: '700' as const, color: Colors.text, textTransform: 'capitalize' },
 });
