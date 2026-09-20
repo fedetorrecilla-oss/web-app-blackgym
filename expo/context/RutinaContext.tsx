@@ -265,6 +265,24 @@ export const [RutinaProvider, useRutina] = createContextHook(() => {
     return exercise;
   }, [exercises, persistExercises]);
 
+  // `exercises` above is a snapshot from whichever render created this
+  // callback — fine for addExercise, which is called once per user tap with
+  // plenty of time to re-render in between. It's NOT fine for a tight loop
+  // (e.g. the bulk "import the whole catalog" flow importing 300+
+  // exercises back-to-back): every call in the loop would read the same
+  // stale snapshot and each `[...exercises, exercise]` would clobber the
+  // previous call's addition instead of accumulating. exercisesRef always
+  // points at the latest state, so addExercisesBulk below is safe to call
+  // repeatedly in a loop.
+  const exercisesRef = useRef(exercises);
+  useEffect(() => { exercisesRef.current = exercises; }, [exercises]);
+
+  const addExercisesBulk = useCallback(async (newOnes: RutinaExercise[]) => {
+    if (newOnes.length === 0) return;
+    await persistExercises([...exercisesRef.current, ...newOnes]);
+    console.log('[RutinaContext] Bulk-added', newOnes.length, 'exercises');
+  }, [persistExercises]);
+
   const updateExercise = useCallback(async (
     id: string,
     name: string,
@@ -518,6 +536,7 @@ export const [RutinaProvider, useRutina] = createContextHook(() => {
     workoutSets,
     isLoading: !localLoaded && localDataQuery.isLoading,
     addExercise,
+    addExercisesBulk,
     updateExercise,
     deleteExercise,
     addTemplate,
