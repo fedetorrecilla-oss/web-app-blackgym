@@ -371,10 +371,24 @@ export default function CatalogScreen() {
               ) : null}
 
               {detailExercise.videoUrl ? (
-                <TouchableOpacity style={styles.videoBtn} onPress={() => openVideo(detailExercise.videoUrl)} activeOpacity={0.8}>
-                  <PlayCircle size={20} color={Colors.black} />
-                  <Text style={styles.videoBtnText}>Ver video del ejercicio</Text>
-                </TouchableOpacity>
+                isImageUrl(detailExercise.videoUrl) ? (
+                  // GIF imported from ExerciseDB (or any direct image URL): render it
+                  // inline so it actually animates in the app, instead of handing off
+                  // to the system browser/Quick Look, which can show it as a frozen
+                  // still frame instead of playing the movement.
+                  <View style={styles.gifCard}>
+                    <Image
+                      source={{ uri: detailExercise.videoUrl }}
+                      style={styles.gifImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.videoBtn} onPress={() => openVideo(detailExercise.videoUrl)} activeOpacity={0.8}>
+                    <PlayCircle size={20} color={Colors.black} />
+                    <Text style={styles.videoBtnText}>Ver video del ejercicio</Text>
+                  </TouchableOpacity>
+                )
               ) : (
                 <Text style={styles.noVideoText}>Sin video cargado para este ejercicio</Text>
               )}
@@ -593,6 +607,12 @@ export default function CatalogScreen() {
   );
 }
 
+/** True for a direct image/GIF URL (e.g. our Supabase-hosted ExerciseDB
+ *  imports) as opposed to a page URL like a YouTube link. */
+function isImageUrl(url: string): boolean {
+  return /\.(gif|png|jpe?g|webp)(\?.*)?$/i.test(url.trim());
+}
+
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <TouchableOpacity style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
@@ -764,6 +784,12 @@ const styles = StyleSheet.create({
   },
   videoBtnText: { fontSize: 15, fontWeight: '700' as const, color: Colors.black },
   noVideoText: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginTop: 20 },
+  gifCard: {
+    backgroundColor: '#FFFFFF', borderRadius: 14, marginTop: 16,
+    borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  gifImage: { width: '100%', height: 260 },
   detailActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   editBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
