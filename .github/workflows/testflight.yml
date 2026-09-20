@@ -7,6 +7,13 @@ jobs:
   build:
     runs-on: macos-26
     timeout-minutes: 60
+    env:
+      # Read by expo/lib/trpc.ts at JS-bundle time (Metro inlines EXPO_PUBLIC_*
+      # vars during the RN bundle build phase, which runs inside `xcodebuild
+      # archive` below). This points the app at the shared backend on Render
+      # instead of each device's local-only AsyncStorage, so admin and
+      # students see the same data.
+      EXPO_PUBLIC_RORK_API_BASE_URL: https://blackgym-api-m6mp.onrender.com
     defaults:
       run:
         working-directory: expo
