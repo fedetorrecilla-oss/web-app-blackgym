@@ -2,6 +2,11 @@
 
 # dependencies
 node_modules/
+# This project uses bun (bun.lock) as its package manager; package-lock.json
+# only ever appears here as a byproduct of a one-off `npm install` used to
+# run a real tsc/eslint check against the actual dependency tree — never
+# meant to be committed.
+package-lock.json
 
 # Expo
 .expo/
