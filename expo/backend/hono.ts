@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
 import { PRIVACY_POLICY_HTML } from "./privacy-policy";
+import { SUPPORT_PAGE_HTML } from "./support-page";
 
 const app = new Hono();
 
@@ -34,5 +35,9 @@ app.get("/", (c) => {
 // kept as a friendlier alias pointing at the same content.
 app.get("/privacy-policy", (c) => c.html(PRIVACY_POLICY_HTML));
 app.get("/privacidad", (c) => c.html(PRIVACY_POLICY_HTML));
+
+// Public "Support URL" for the App Store / Google Play listings.
+app.get("/support", (c) => c.html(SUPPORT_PAGE_HTML));
+app.get("/soporte", (c) => c.html(SUPPORT_PAGE_HTML));
 
 export default app;
