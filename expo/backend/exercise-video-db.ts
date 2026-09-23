@@ -8,10 +8,13 @@
 // demo videos (a male-model and a female-model take of almost every
 // exercise) plus rich English instructional text. The data file at
 // ./data/exercise-video-db.json is a one-time export of that dataset:
-//   - every text field (short description, step-by-step instructions,
-//     common mistakes) has been translated to Spanish ("vos" form) and
-//     pre-assembled into a single `notes` string, ready to drop straight
-//     into an exercise's notes field
+//   - the exercise `name` and every text field (short description,
+//     step-by-step instructions, common mistakes) have been translated to
+//     Spanish ("vos" form); the instructional text is pre-assembled into a
+//     single `notes` string, ready to drop straight into an exercise's
+//     notes field. The original English name is kept as `nameEn` (see
+//     below) and folded into `aliases`, so search still works by either
+//     language.
 //   - `muscleGroup`/`equipment`/`difficulty` have been mapped onto this
 //     app's own Spanish categories (types/rutina.ts: MUSCLE_GROUPS,
 //     EQUIPMENT_TYPES, DIFFICULTIES) so an imported result can be used
@@ -26,7 +29,14 @@ import rawData from "./data/exercise-video-db.json";
 
 export interface ExerciseVideoDbEntry {
   sourceId: string;
+  /** Display name, in Spanish — this is what search shows and what gets
+   *  filled into an exercise's name on import. */
   name: string;
+  /** The dataset's original English name, kept around so the client can
+   *  recognize (and rename) exercises that were imported before names were
+   *  translated to Spanish — see handleBulkImportAll in catalog.tsx. Also
+   *  copied into `aliases` so English-term search still works. */
+  nameEn: string;
   aliases: string[];
   searchSlug: string;
   muscleGroup: string;
@@ -53,11 +63,12 @@ export function getExerciseVideoDbEntry(sourceId: string): ExerciseVideoDbEntry 
  *  catalog" flow. */
 export function listExerciseVideoDb(): Pick<
   ExerciseVideoDbEntry,
-  "sourceId" | "name" | "muscleGroup" | "equipment" | "difficulty"
+  "sourceId" | "name" | "nameEn" | "muscleGroup" | "equipment" | "difficulty"
 >[] {
   return ENTRIES.map((e) => ({
     sourceId: e.sourceId,
     name: e.name,
+    nameEn: e.nameEn,
     muscleGroup: e.muscleGroup,
     equipment: e.equipment,
     difficulty: e.difficulty,
@@ -68,7 +79,7 @@ function normalize(s: string): string {
   return s
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim();
 }
 
