@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
+import { PRIVACY_POLICY_HTML } from "./privacy-policy";
 
 const app = new Hono();
 
@@ -27,5 +28,11 @@ app.use(
 app.get("/", (c) => {
   return c.json({ status: "ok", message: "Gym Turnos API is running" });
 });
+
+// Public, stable URL for the App Store / Google Play listings' privacy
+// policy field. "/privacy-policy" is the primary link; "/privacidad" is
+// kept as a friendlier alias pointing at the same content.
+app.get("/privacy-policy", (c) => c.html(PRIVACY_POLICY_HTML));
+app.get("/privacidad", (c) => c.html(PRIVACY_POLICY_HTML));
 
 export default app;
