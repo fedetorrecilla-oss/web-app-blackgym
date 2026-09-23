@@ -283,6 +283,15 @@ export const [RutinaProvider, useRutina] = createContextHook(() => {
     console.log('[RutinaContext] Bulk-added', newOnes.length, 'exercises');
   }, [persistExercises]);
 
+  // Replaces the whole exercises list in one shot — for the "translate
+  // names to Spanish" pass in the bulk-import flow, which computes a fully
+  // updated array from a single read of the current list (not a loop of
+  // individual updates), so there's no stale-closure risk to guard against
+  // here the way there is in addExercisesBulk above.
+  const replaceAllExercises = useCallback(async (updated: RutinaExercise[]) => {
+    await persistExercises(updated);
+  }, [persistExercises]);
+
   const updateExercise = useCallback(async (
     id: string,
     name: string,
@@ -537,6 +546,7 @@ export const [RutinaProvider, useRutina] = createContextHook(() => {
     isLoading: !localLoaded && localDataQuery.isLoading,
     addExercise,
     addExercisesBulk,
+    replaceAllExercises,
     updateExercise,
     deleteExercise,
     addTemplate,
